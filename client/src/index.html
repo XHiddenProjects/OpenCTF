@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>OpenCTF</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Login / Register screen -->
+    <section id="screen-auth" class="screen">
+      <div class="auth-card">
+        <div class="brand">
+          <span class="brand-mark">&gt;_</span>
+          <h1>OpenCTF</h1>
+        </div>
+        <p class="auth-sub">Sign in with your team credentials to see the challenge board.</p>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="login">Sign in</button>
+          <button class="tab-btn" data-tab="register">Create account</button>
+        </div>
+
+        <form id="form-login" class="auth-form">
+          <label>Username
+            <input type="text" id="login-username" autocomplete="username" required />
+          </label>
+          <label>Password
+            <input type="password" id="login-password" autocomplete="current-password" required />
+          </label>
+          <button type="submit" class="btn-primary">Sign in</button>
+          <p class="form-error" id="login-error"></p>
+        </form>
+
+        <form id="form-register" class="auth-form hidden">
+          <label>Username
+            <input type="text" id="reg-username" required />
+          </label>
+          <label>Team name
+            <input type="text" id="reg-team" placeholder="existing or new team" required />
+          </label>
+          <label>Password
+            <input type="password" id="reg-password" minlength="8" required />
+          </label>
+          <button type="submit" class="btn-primary">Create account</button>
+          <p class="form-error" id="register-error"></p>
+        </form>
+
+        <button id="open-settings" class="link-btn">Server settings</button>
+      </div>
+    </section>
+
+    <!-- Main app -->
+    <section id="screen-main" class="screen hidden">
+      <nav class="sidebar">
+        <div class="brand small">
+          <span class="brand-mark">&gt;_</span>
+          <span>OpenCTF</span>
+        </div>
+        <button class="nav-btn active" data-view="challenges">Challenges</button>
+        <button class="nav-btn" data-view="scoreboard">Scoreboard</button>
+        <button class="nav-btn" data-view="profile">My profile</button>
+        <button id="nav-admin" class="nav-btn hidden" data-view="admin">Admin</button>
+        <div class="sidebar-spacer"></div>
+        <div class="who">
+          <span id="who-avatar" class="who-avatar">🛡️</span>
+          <span id="who-team">—</span>
+          <span id="who-user" class="who-user">—</span>
+        </div>
+        <button id="open-settings-2" class="link-btn small">Server settings</button>
+        <button id="logout" class="link-btn small">Sign out</button>
+      </nav>
+
+      <main class="content">
+        <div id="view-challenges" class="view">
+          <header class="view-header">
+            <h2>Challenges</h2>
+            <button id="refresh-challenges" class="btn-ghost">Refresh</button>
+          </header>
+          <div id="challenge-list" class="challenge-grid"></div>
+        </div>
+
+        <div id="view-scoreboard" class="view hidden">
+          <header class="view-header">
+            <h2>Scoreboard</h2>
+            <button id="refresh-scoreboard" class="btn-ghost">Refresh</button>
+          </header>
+          <table class="score-table">
+            <thead>
+              <tr><th>#</th><th>Team</th><th>Score</th><th>Solves</th></tr>
+            </thead>
+            <tbody id="score-body"></tbody>
+          </table>
+        </div>
+
+        <div id="view-profile" class="view hidden">
+          <header class="view-header">
+            <h2>My profile</h2>
+          </header>
+          <div class="settings-grid">
+            <form id="form-profile" class="settings-card">
+              <h3>Profile</h3>
+              <label>Display name
+                <input type="text" id="profile-display-name" maxlength="80" />
+              </label>
+              <label>Avatar (emoji)
+                <input type="text" id="profile-avatar" maxlength="8" />
+              </label>
+              <label>Bio
+                <textarea id="profile-bio" maxlength="280" rows="3"></textarea>
+              </label>
+              <button type="submit" class="btn-primary">Save profile</button>
+              <p class="form-result" id="profile-result"></p>
+              <div class="profile-reset">
+                <h4>Start over</h4>
+                <p>Remove your team's solve and attempt history.</p>
+                <button type="button" id="reset-progress" class="btn-danger">Reset progress</button>
+                <p class="form-result" id="reset-result"></p>
+              </div>
+            </form>
+
+            <form id="form-password" class="settings-card">
+              <h3>Change password</h3>
+              <label>Current password
+                <input type="password" id="pw-current" autocomplete="current-password" />
+              </label>
+              <label>New password
+                <input type="password" id="pw-new" minlength="8" autocomplete="new-password" />
+              </label>
+              <button type="submit" class="btn-primary">Update password</button>
+              <p class="form-result" id="password-result"></p>
+            </form>
+          </div>
+        </div>
+
+        <div id="view-admin" class="view hidden">
+          <header class="view-header">
+            <h2>Admin</h2>
+          </header>
+
+          <div id="admin-stats" class="stats-row"></div>
+          <p id="ollama-status" class="ollama-status">Checking Ollama...</p>
+
+          <div class="tabs admin-tabs">
+            <button class="admin-tab-btn active" data-admin-tab="challenges">Challenges</button>
+            <button class="admin-tab-btn" data-admin-tab="users">Users</button>
+          </div>
+
+          <div id="admin-tab-challenges" class="admin-tab">
+            <div class="view-header">
+              <span></span>
+              <button id="new-challenge-btn" class="btn-primary small">+ New challenge</button>
+            </div>
+            <table class="score-table">
+              <thead>
+                <tr><th>Title</th><th>Category</th><th>Type</th><th>Points</th><th>Active</th><th></th></tr>
+              </thead>
+              <tbody id="admin-challenge-body"></tbody>
+            </table>
+          </div>
+
+          <div id="admin-tab-users" class="admin-tab hidden">
+            <table class="score-table">
+              <thead>
+                <tr><th>Username</th><th>Display name</th><th>Team</th><th>Admin</th><th></th></tr>
+              </thead>
+              <tbody id="admin-users-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </section>
+
+    <!-- Flag submit modal -->
+    <div id="modal-challenge" class="modal hidden">
+      <div class="modal-card">
+        <button class="modal-close" id="modal-close">&times;</button>
+        <p class="modal-category" id="modal-category"></p>
+        <h3 id="modal-title"></h3>
+        <div id="web-tabs" class="challenge-tabs hidden">
+          <button type="button" class="challenge-tab active" data-web-tab="brief">Brief</button>
+          <button type="button" class="challenge-tab" data-web-tab="site">Target site</button>
+        </div>
+        <div id="web-brief-pane">
+          <p id="modal-desc" class="modal-desc"></p>
+        </div>
+        <p id="modal-points" class="modal-points"></p>
+        <p id="modal-meta" class="modal-meta"></p>
+        <section id="modal-rules-wrap" class="challenge-rules hidden">
+          <h4>Challenge rules</h4>
+          <p id="modal-rules"></p>
+        </section>
+        <details id="modal-hint-wrap" class="hidden">
+          <summary>Hint</summary>
+          <p id="modal-hint"></p>
+        </details>
+        <div id="web-site-pane" class="web-site-pane hidden">
+          <div class="web-browser-bar">
+            <button type="button" class="browser-control" id="web-back" title="Back">&#8592;</button>
+            <button type="button" class="browser-control" id="web-forward" title="Forward">&#8594;</button>
+            <button type="button" class="browser-control" id="web-reload" title="Reload">&#8635;</button>
+            <form id="form-web-address" class="web-address-form">
+              <input id="web-address" type="text" value="/" aria-label="Target site address" />
+            </form>
+          </div>
+          <iframe id="web-target-frame" class="web-target-frame" title="Sandboxed vulnerable target website"></iframe>
+          <p class="field-note">Target site runs on an isolated Apache-style lab server. Use its links, forms, search, and address bar.</p>
+        </div>
+        <form id="form-submit-flag">
+          <input type="text" id="flag-input" placeholder="flag{...}" autocomplete="off" />
+          <button type="submit" class="btn-primary">Submit</button>
+        </form>
+        <p id="modal-result" class="modal-result"></p>
+      </div>
+    </div>
+
+    <!-- Interactive terminal modal (for type=terminal challenges) -->
+    <div id="modal-terminal" class="modal hidden">
+      <div class="modal-card modal-card-wide">
+        <button class="modal-close" id="terminal-close">&times;</button>
+        <p class="modal-category" id="terminal-category"></p>
+        <h3 id="terminal-title"></h3>
+        <p id="terminal-points" class="modal-points"></p>
+        <details id="terminal-hint-wrap" class="hidden">
+          <summary>Hint</summary>
+          <p id="terminal-hint"></p>
+        </details>
+
+        <div id="terminal-output" class="terminal-output"></div>
+        <form id="form-terminal-cmd" class="terminal-input-row">
+          <span class="terminal-prompt" id="terminal-prompt">/ $</span>
+          <input type="text" id="terminal-cmd-input" autocomplete="off" spellcheck="false" />
+        </form>
+
+        <form id="form-submit-flag-terminal" class="flag-row">
+          <input type="text" id="terminal-flag-input" placeholder="flag{...}" autocomplete="off" />
+          <button type="submit" class="btn-primary">Submit flag</button>
+        </form>
+        <p id="terminal-result" class="modal-result"></p>
+      </div>
+    </div>
+
+    <div id="modal-ai" class="modal hidden">
+      <div class="modal-card modal-card-wide">
+        <button class="modal-close" id="ai-close">&times;</button>
+        <p class="modal-category" id="ai-category"></p>
+        <h3 id="ai-title"></h3>
+        <p id="ai-points" class="modal-points"></p>
+        <p id="ai-status" class="modal-meta"></p>
+        <div id="ai-transcript" class="ai-transcript"></div>
+        <form id="form-ai-chat" class="ai-chat-form">
+          <button type="button" id="ai-mic" class="browser-control" title="Use microphone">&#127908;</button>
+          <input id="ai-input" type="text" placeholder="Make your case..." autocomplete="off" />
+          <button type="submit" class="btn-primary">Send</button>
+        </form>
+        <form id="form-submit-flag-ai" class="flag-row">
+          <input type="text" id="ai-flag-input" placeholder="flag{...}" autocomplete="off" />
+          <button type="submit" class="btn-primary">Submit flag</button>
+        </form>
+        <p id="ai-result" class="modal-result"></p>
+      </div>
+    </div>
+
+    <!-- Quiz challenge modal (for type=quiz challenges) -->
+    <div id="modal-quiz" class="modal hidden">
+      <div class="modal-card">
+        <button class="modal-close" id="quiz-close">&times;</button>
+        <p class="modal-category" id="quiz-category"></p>
+        <h3 id="quiz-title"></h3>
+        <p id="quiz-points" class="modal-points"></p>
+        <p id="quiz-desc" class="modal-desc"></p>
+        <details id="quiz-hint-wrap" class="hidden">
+          <summary>Hint</summary>
+          <p id="quiz-hint"></p>
+        </details>
+        <p id="quiz-question" class="quiz-question"></p>
+        <div id="quiz-options" class="quiz-options"></div>
+        <form id="form-submit-flag-quiz" class="flag-row hidden">
+          <input type="text" id="quiz-flag-input" placeholder="flag{...}" autocomplete="off" />
+          <button type="submit" class="btn-primary">Submit flag</button>
+        </form>
+        <p id="quiz-result" class="modal-result"></p>
+      </div>
+    </div>
+
+    <!-- Admin: create/edit challenge modal -->
+    <div id="modal-challenge-form" class="modal hidden">
+      <div class="modal-card">
+        <button class="modal-close" id="challenge-form-close">&times;</button>
+        <h3 id="challenge-form-title">New challenge</h3>
+        <form id="form-challenge">
+          <input type="hidden" id="cf-id" />
+           <label>Starting template
+             <select id="cf-preset">
+               <option value="custom">Custom challenge</option>
+               <option value="web">Website investigation</option>
+               <option value="database">Database attack</option>
+               <option value="terminal">Terminal exploration</option>
+               <option value="quiz">Quiz</option>
+             </select>
+           </label>
+           <div class="form-grid">
+             <label>Title<input type="text" id="cf-title" required /></label>
+             <label>Category<input type="text" id="cf-category" placeholder="web, database, terminal..." required /></label>
+             <label>Type
+               <select id="cf-type"><option value="standard">Standard challenge</option><option value="web">Sandboxed web lab</option><option value="terminal">Interactive terminal</option><option value="ai">AI conversation</option><option value="quiz">Quiz</option></select>
+             </label>
+             <label>Difficulty
+               <select id="cf-difficulty"><option value="easy">Easy · 100 pts</option><option value="medium">Medium · 200 pts</option><option value="hard">Hard · 300 pts</option><option value="expert">Expert · 400 pts</option></select>
+             </label>
+           </div>
+           <label>Points<input type="number" id="cf-points" min="1" value="100" required /></label>
+           <label>Briefing / objective<textarea id="cf-description" rows="4" required placeholder="Tell players what they need to investigate or achieve."></textarea></label>
+           <label>Rules for players<textarea id="cf-rules" rows="3" placeholder="Example: You may use browser developer tools, but do not attack the host system."></textarea></label>
+           <label>Hint (optional)<textarea id="cf-hint" rows="2"></textarea></label>
+          <div id="cf-web-wrap" class="builder-panel hidden">
+            <h4>Web lab builder</h4>
+            <p>Design the isolated target page players will interact with.</p>
+            <div class="form-grid">
+              <label>Vulnerability
+                <select id="cf-web-behavior"><option value="xss">Reflected XSS</option><option value="sql_injection">SQL injection login</option><option value="apache_directory">Apache directory listing</option><option value="hidden_path">Hidden path</option><option value="search">Search endpoint</option><option value="login">Login enumeration</option><option value="parameter">Parameter testing</option></select>
+              </label>
+              <label>Page title<input type="text" id="cf-web-title" value="Internal site" /></label>
+              <label>Secret path<input type="text" id="cf-web-path" value="/admin" /></label>
+              <label>Search term<input type="text" id="cf-web-term" value="flag" /></label>
+            </div>
+            <label>Landing page<textarea id="cf-web-landing" rows="2">Welcome to the internal site.</textarea></label>
+            <label>Success response<textarea id="cf-web-success" rows="2">You found the hidden response.</textarea></label>
+            <p class="field-note">The flag shown on success is the same "Flag" you set at the bottom of this form — no need to enter it twice.</p>
+          </div>
+          <div id="cf-ai-wrap" class="builder-panel hidden">
+            <h4>AI conversation builder</h4>
+            <p>Configure the person players must persuade. The flag is never sent to Ollama.</p>
+            <div class="form-grid">
+              <label>Conversation difficulty
+                <select id="cf-ai-difficulty"><option value="easy">Easy · cooperative</option><option value="medium">Medium · cautious</option><option value="hard">Hard · skeptical</option><option value="expert">Expert · adversarial</option></select>
+              </label>
+              <label>Persona<input type="text" id="cf-ai-persona" value="A cautious support engineer" /></label>
+              <label>Success phrase<input type="text" id="cf-ai-marker" value="ACCESS_GRANTED" /></label>
+              <label>Temperature<input type="number" id="cf-ai-temperature" min="0" max="1.5" step="0.1" value="0.7" /></label>
+            </div>
+            <label>Scenario<textarea id="cf-ai-scenario" rows="3">You know one piece of sensitive evidence and must decide whether the requester is authorized.</textarea></label>
+            <div class="form-grid">
+              <label>Voice character
+                <select id="cf-ai-voice-style"><option value="neutral">Neutral</option><option value="warm">Warm</option><option value="authoritative">Authoritative</option><option value="calm">Calm</option></select>
+              </label>
+              <label>Language / accent
+                <select id="cf-ai-voice-lang"><option value="en-US">English · US</option><option value="en-GB">English · UK</option><option value="en-AU">English · Australia</option><option value="en-CA">English · Canada</option></select>
+              </label>
+              <label>Voice pitch<input type="number" id="cf-ai-voice-pitch" min="0.5" max="2" step="0.1" value="1" /></label>
+              <label>Voice speed<input type="number" id="cf-ai-voice-rate" min="0.5" max="2" step="0.1" value="1" /></label>
+            </div>
+            <label class="toggle-row"><span class="toggle-switch"><input type="checkbox" id="cf-ai-speak" checked /><span class="toggle-track"></span></span> Speak replies aloud when supported</label>
+          </div>
+          <div id="cf-quiz-wrap" class="builder-panel hidden">
+            <h4>Quiz builder</h4>
+            <p>Write a question and up to four answers, then pick which one is correct. The flag below is what players get once they pick it.</p>
+            <label>Question<textarea id="cf-quiz-question" rows="2" placeholder="Which port does HTTPS use by default?"></textarea></label>
+            <div class="quiz-option-rows">
+              <label>Option A<input type="text" id="cf-quiz-opt-0" placeholder="Answer 1" /></label>
+              <label>Option B<input type="text" id="cf-quiz-opt-1" placeholder="Answer 2" /></label>
+              <label>Option C<input type="text" id="cf-quiz-opt-2" placeholder="Answer 3 (optional)" /></label>
+              <label>Option D<input type="text" id="cf-quiz-opt-3" placeholder="Answer 4 (optional)" /></label>
+            </div>
+            <label>Correct option
+              <select id="cf-quiz-correct"><option value="0">Option A</option><option value="1">Option B</option><option value="2">Option C</option><option value="3">Option D</option></select>
+            </label>
+          </div>
+          <label id="cf-terminal-fs-wrap" class="hidden">Filesystem (JSON — dirs are objects, files are strings)
+            <textarea id="cf-terminal-fs" rows="6" spellcheck="false" class="mono"></textarea>
+          </label>
+          <label>Flag <span class="field-note">(leave blank when editing to keep the existing flag)</span>
+            <input type="text" id="cf-flag" placeholder="flag{...}" />
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-switch"><input type="checkbox" id="cf-active" checked /><span class="toggle-track"></span></span>
+            Active (visible to players)
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Save challenge</button>
+            <button type="button" id="cf-delete" class="btn-danger hidden">Delete</button>
+          </div>
+          <p class="form-result" id="challenge-form-result"></p>
+        </form>
+      </div>
+    </div>
+
+    <!-- Settings modal -->
+    <div id="modal-settings" class="modal hidden">
+      <div class="modal-card">
+        <button class="modal-close" id="settings-close">&times;</button>
+        <h3>Server settings</h3>
+        <label>Server URL
+          <input type="text" id="settings-url" placeholder="http://localhost:5000" />
+        </label>
+        <button id="settings-save" class="btn-primary">Save</button>
+        <p id="settings-status" class="modal-result"></p>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
