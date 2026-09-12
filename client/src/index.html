@@ -13,7 +13,7 @@
       <div class="auth-card">
         <div class="brand">
           <span class="brand-mark">&gt;_</span>
-          <h1>OpenCTF</h1>
+          <h1>Lab CTF</h1>
         </div>
         <p class="auth-sub">Sign in with your team credentials to see the challenge board.</p>
 
@@ -27,7 +27,10 @@
             <input type="text" id="login-username" autocomplete="username" required />
           </label>
           <label>Password
-            <input type="password" id="login-password" autocomplete="current-password" required />
+            <div class="password-row">
+              <input type="password" id="login-password" autocomplete="current-password" required />
+              <button type="button" class="password-toggle" data-toggle-password="login-password" aria-label="Show password">👁</button>
+            </div>
           </label>
           <button type="submit" class="btn-primary">Sign in</button>
           <p class="form-error" id="login-error"></p>
@@ -37,11 +40,16 @@
           <label>Username
             <input type="text" id="reg-username" required />
           </label>
-          <label>Team name
-            <input type="text" id="reg-team" placeholder="existing or new team" required />
+          <label>Team
+            <select id="reg-team">
+              <option value="">Independent (no team)</option>
+            </select>
           </label>
           <label>Password
-            <input type="password" id="reg-password" minlength="8" required />
+            <div class="password-row">
+              <input type="password" id="reg-password" minlength="8" required />
+              <button type="button" class="password-toggle" data-toggle-password="reg-password" aria-label="Show password">👁</button>
+            </div>
           </label>
           <button type="submit" class="btn-primary">Create account</button>
           <p class="form-error" id="register-error"></p>
@@ -56,7 +64,7 @@
       <nav class="sidebar">
         <div class="brand small">
           <span class="brand-mark">&gt;_</span>
-          <span>OpenCTF</span>
+          <span>Lab CTF</span>
         </div>
         <button class="nav-btn active" data-view="challenges">Challenges</button>
         <button class="nav-btn" data-view="scoreboard">Scoreboard</button>
@@ -76,9 +84,12 @@
         <div id="view-challenges" class="view">
           <header class="view-header">
             <h2>Challenges</h2>
-            <button id="refresh-challenges" class="btn-ghost">Refresh</button>
+            <div class="view-header-actions">
+              <input type="search" id="challenge-search" class="search-input" placeholder="Search challenges..." />
+              <button id="refresh-challenges" class="btn-ghost">Refresh</button>
+            </div>
           </header>
-          <div id="challenge-list" class="challenge-grid"></div>
+          <div id="challenge-list"></div>
         </div>
 
         <div id="view-scoreboard" class="view hidden">
@@ -123,10 +134,16 @@
             <form id="form-password" class="settings-card">
               <h3>Change password</h3>
               <label>Current password
-                <input type="password" id="pw-current" autocomplete="current-password" />
+                <div class="password-row">
+                  <input type="password" id="pw-current" autocomplete="current-password" />
+                  <button type="button" class="password-toggle" data-toggle-password="pw-current" aria-label="Show password">👁</button>
+                </div>
               </label>
               <label>New password
-                <input type="password" id="pw-new" minlength="8" autocomplete="new-password" />
+                <div class="password-row">
+                  <input type="password" id="pw-new" minlength="8" autocomplete="new-password" />
+                  <button type="button" class="password-toggle" data-toggle-password="pw-new" aria-label="Show password">👁</button>
+                </div>
               </label>
               <button type="submit" class="btn-primary">Update password</button>
               <p class="form-result" id="password-result"></p>
@@ -145,6 +162,7 @@
           <div class="tabs admin-tabs">
             <button class="admin-tab-btn active" data-admin-tab="challenges">Challenges</button>
             <button class="admin-tab-btn" data-admin-tab="users">Users</button>
+            <button class="admin-tab-btn" data-admin-tab="teams">Teams</button>
           </div>
 
           <div id="admin-tab-challenges" class="admin-tab">
@@ -166,6 +184,20 @@
                 <tr><th>Username</th><th>Display name</th><th>Team</th><th>Admin</th><th></th></tr>
               </thead>
               <tbody id="admin-users-body"></tbody>
+            </table>
+          </div>
+
+          <div id="admin-tab-teams" class="admin-tab hidden">
+            <form id="form-create-team" class="inline-form">
+              <input type="text" id="new-team-name" placeholder="New team name" required />
+              <button type="submit" class="btn-primary small">Create team</button>
+            </form>
+            <p class="form-result" id="team-form-result"></p>
+            <table class="score-table">
+              <thead>
+                <tr><th>Team</th><th>Members</th><th></th></tr>
+              </thead>
+              <tbody id="admin-teams-body"></tbody>
             </table>
           </div>
         </div>
@@ -208,7 +240,7 @@
           <p class="field-note">Target site runs on an isolated Apache-style lab server. Use its links, forms, search, and address bar.</p>
         </div>
         <form id="form-submit-flag">
-          <input type="text" id="flag-input" placeholder="flag{...}" autocomplete="off" />
+          <input type="text" id="flag-input" placeholder="OCTF{...}" autocomplete="off" />
           <button type="submit" class="btn-primary">Submit</button>
         </form>
         <p id="modal-result" class="modal-result"></p>
@@ -234,7 +266,7 @@
         </form>
 
         <form id="form-submit-flag-terminal" class="flag-row">
-          <input type="text" id="terminal-flag-input" placeholder="flag{...}" autocomplete="off" />
+          <input type="text" id="terminal-flag-input" placeholder="OCTF{...}" autocomplete="off" />
           <button type="submit" class="btn-primary">Submit flag</button>
         </form>
         <p id="terminal-result" class="modal-result"></p>
@@ -255,7 +287,7 @@
           <button type="submit" class="btn-primary">Send</button>
         </form>
         <form id="form-submit-flag-ai" class="flag-row">
-          <input type="text" id="ai-flag-input" placeholder="flag{...}" autocomplete="off" />
+          <input type="text" id="ai-flag-input" placeholder="OCTF{...}" autocomplete="off" />
           <button type="submit" class="btn-primary">Submit flag</button>
         </form>
         <p id="ai-result" class="modal-result"></p>
@@ -277,7 +309,7 @@
         <p id="quiz-question" class="quiz-question"></p>
         <div id="quiz-options" class="quiz-options"></div>
         <form id="form-submit-flag-quiz" class="flag-row hidden">
-          <input type="text" id="quiz-flag-input" placeholder="flag{...}" autocomplete="off" />
+          <input type="text" id="quiz-flag-input" placeholder="OCTF{...}" autocomplete="off" />
           <button type="submit" class="btn-primary">Submit flag</button>
         </form>
         <p id="quiz-result" class="modal-result"></p>
@@ -370,9 +402,14 @@
           <label id="cf-terminal-fs-wrap" class="hidden">Filesystem (JSON — dirs are objects, files are strings)
             <textarea id="cf-terminal-fs" rows="6" spellcheck="false" class="mono"></textarea>
           </label>
-          <label>Flag <span class="field-note">(leave blank when editing to keep the existing flag)</span>
-            <input type="text" id="cf-flag" placeholder="flag{...}" />
+          <label>Flag answer <span class="field-note">(any text - it gets hashed into OCTF{md5(...)} automatically; leave blank when editing to keep the existing flag)</span>
+            <div class="flag-answer-row">
+              <input type="text" id="cf-flag" placeholder="e.g. a memorable phrase - not the flag itself" />
+              <button type="button" id="cf-generate-flag" class="btn-ghost">Generate flag</button>
+            </div>
           </label>
+          <p id="cf-flag-preview" class="field-note hidden"></p>
+          <p id="cf-flag-current" class="field-note hidden"></p>
           <label class="toggle-row">
             <span class="toggle-switch"><input type="checkbox" id="cf-active" checked /><span class="toggle-track"></span></span>
             Active (visible to players)

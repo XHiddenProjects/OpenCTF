@@ -1,7 +1,7 @@
 {
   "name": "OpenCTF",
   "version": "0.1.0",
-  "description": "Desktop client for the openCTF platform",
+  "description": "Desktop client for the lab CTF platform",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",

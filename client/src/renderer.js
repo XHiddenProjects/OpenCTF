@@ -2,7 +2,75 @@ let SERVER_URL = "";
 let TOKEN = null;
 let ME = { username: null, team: null, is_admin: false, display_name: null, bio: "", avatar: "🛡️" };
 let CHALLENGES = [];
+let CHALLENGE_SEARCH = "";
 let ACTIVE_CHALLENGE = null;
+
+// ---- Minimal MD5 (RFC 1321), used only for a live flag preview in the
+// admin challenge builder. Matches Python's hashlib.md5(s.encode("utf-8"))
+// exactly - the server is still the source of truth for what actually gets
+// saved, this is purely so the admin can see the flag before saving.
+function md5(input) {
+  function rotl(x, n) { return (x << n) | (x >>> (32 - n)); }
+  function toHex(bytes) {
+    let hex = "";
+    for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+    return hex;
+  }
+  const K = new Uint32Array([
+    0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
+    0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,
+    0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,
+    0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,
+    0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,
+    0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,
+    0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,
+    0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391,
+  ]);
+  const S = [
+    7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+    5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
+    4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+    6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21,
+  ];
+  const msg = new TextEncoder().encode(input);
+  const bitLen = msg.length * 8;
+  const padLen = ((msg.length % 64) < 56) ? (56 - (msg.length % 64)) : (120 - (msg.length % 64));
+  const padded = new Uint8Array(msg.length + padLen + 8);
+  padded.set(msg);
+  padded[msg.length] = 0x80;
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 8, bitLen >>> 0, true);
+  view.setUint32(padded.length - 4, Math.floor(bitLen / 0x100000000), true);
+  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+  for (let chunkStart = 0; chunkStart < padded.length; chunkStart += 64) {
+    const M = new Uint32Array(16);
+    for (let i = 0; i < 16; i++) M[i] = view.getUint32(chunkStart + i * 4, true);
+    let [A, B, C, D] = [a0, b0, c0, d0];
+    for (let i = 0; i < 64; i++) {
+      let F, g;
+      if (i < 16) { F = (B & C) | (~B & D); g = i; }
+      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+      else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+      else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+      F = (F + A + K[i] + M[g]) >>> 0;
+      A = D; D = C; C = B;
+      B = (B + rotl(F, S[i])) >>> 0;
+    }
+    a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
+  }
+  const out = new Uint8Array(16);
+  const outView = new DataView(out.buffer);
+  outView.setUint32(0, a0, true); outView.setUint32(4, b0, true);
+  outView.setUint32(8, c0, true); outView.setUint32(12, d0, true);
+  return toHex(out);
+}
+
+const FLAG_PREFIX = "OCTF";
+function flagPreviewFor(answer) {
+  const trimmed = (answer || "").trim();
+  if (!trimmed) return "";
+  return `${FLAG_PREFIX}{${md5(trimmed)}}`;
+}
 
 // terminal state for the currently open terminal challenge
 let TERMINAL_CWD = "/";
@@ -17,6 +85,7 @@ let TARGET_NAVIGATING = false;
 // admin state
 let ADMIN_CHALLENGES = [];
 let ADMIN_USERS = [];
+let ADMIN_TEAMS = [];
 let EDITING_CHALLENGE_ID = null;
 
 const $ = (sel) => document.querySelector(sel);
@@ -45,6 +114,7 @@ async function init() {
   SERVER_URL = config.serverUrl;
   $("#settings-url").value = SERVER_URL;
   wireEvents();
+  loadRegistrationTeams();
 }
 
 function wireEvents() {
@@ -56,12 +126,14 @@ function wireEvents() {
       const tab = btn.dataset.tab;
       $("#form-login").classList.toggle("hidden", tab !== "login");
       $("#form-register").classList.toggle("hidden", tab !== "register");
+      if (tab === "register") loadRegistrationTeams();
     });
   });
 
   $("#form-login").addEventListener("submit", onLogin);
   $("#form-register").addEventListener("submit", onRegister);
   $("#logout").addEventListener("click", onLogout);
+  wirePasswordToggles();
 
   // Nav
   $$(".nav-btn").forEach((btn) => {
@@ -78,6 +150,10 @@ function wireEvents() {
   });
 
   $("#refresh-challenges").addEventListener("click", loadChallenges);
+  $("#challenge-search").addEventListener("input", (e) => {
+    CHALLENGE_SEARCH = e.target.value;
+    renderChallenges();
+  });
   $("#refresh-scoreboard").addEventListener("click", loadScoreboard);
 
   // Challenge modal (standard)
@@ -138,13 +214,45 @@ function wireEvents() {
   });
   $("#cf-preset").addEventListener("change", (e) => applyChallengePreset(e.target.value));
   $("#cf-difficulty").addEventListener("change", updatePointsForDifficulty);
+  $("#cf-flag").addEventListener("input", updateFlagPreview);
+  $("#cf-generate-flag").addEventListener("click", onGenerateFlag);
   $("#form-challenge").addEventListener("submit", onSaveChallenge);
   $("#cf-delete").addEventListener("click", onDeleteChallenge);
+
+  // Admin: teams
+  $("#form-create-team").addEventListener("submit", onCreateTeam);
 }
 
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
+
+function wirePasswordToggles() {
+  $$("[data-toggle-password]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = $(`#${btn.dataset.togglePassword}`);
+      const showing = input.type === "text";
+      input.type = showing ? "password" : "text";
+      btn.textContent = showing ? "👁" : "🙈";
+      btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+    });
+  });
+}
+
+function resetAuthForms() {
+  $("#form-login").reset();
+  $("#form-register").reset();
+  $("#login-error").textContent = "";
+  $("#register-error").textContent = "";
+  // Don't leave a password field toggled to plain-text visible for the
+  // next person to see this screen.
+  $$("[data-toggle-password]").forEach((btn) => {
+    const input = $(`#${btn.dataset.togglePassword}`);
+    if (input) input.type = "password";
+    btn.textContent = "👁";
+    btn.setAttribute("aria-label", "Show password");
+  });
+}
 
 async function onLogin(e) {
   e.preventDefault();
@@ -163,6 +271,21 @@ async function onLogin(e) {
   }
 }
 
+async function loadRegistrationTeams() {
+  const select = $("#reg-team");
+  try {
+    const teams = await api("/api/teams");
+    const options = ['<option value="">Independent (no team)</option>'];
+    teams
+      .filter((t) => t.name !== "Independent")
+      .forEach((t) => options.push(`<option value="${t.id}">${t.name}</option>`));
+    select.innerHTML = options.join("");
+  } catch {
+    // Leave the default "Independent" option in place - registration still
+    // works fine (the server falls back to Independent for a blank team_id).
+  }
+}
+
 async function onRegister(e) {
   e.preventDefault();
   $("#register-error").textContent = "";
@@ -171,7 +294,7 @@ async function onRegister(e) {
       method: "POST",
       body: JSON.stringify({
         username: $("#reg-username").value,
-        team_name: $("#reg-team").value,
+        team_id: $("#reg-team").value || null,
         password: $("#reg-password").value,
       }),
     });
@@ -184,6 +307,7 @@ async function onRegister(e) {
 async function onAuthed(body) {
   TOKEN = body.token;
   ME = { username: body.username, team: body.team, is_admin: !!body.is_admin };
+  resetAuthForms();
   $("#screen-auth").classList.add("hidden");
   $("#screen-main").classList.remove("hidden");
   $("#nav-admin").classList.toggle("hidden", !ME.is_admin);
@@ -205,6 +329,11 @@ async function onAuthed(body) {
 function onLogout() {
   TOKEN = null;
   ME = { username: null, team: null, is_admin: false, display_name: null, bio: "", avatar: "🛡️" };
+  resetAuthForms();
+  $$(".tab-btn").forEach((b) => b.classList.remove("active"));
+  $('.tab-btn[data-tab="login"]').classList.add("active");
+  $("#form-login").classList.remove("hidden");
+  $("#form-register").classList.add("hidden");
   $("#nav-admin").classList.add("hidden");
   $("#screen-main").classList.add("hidden");
   $("#screen-auth").classList.remove("hidden");
@@ -233,18 +362,65 @@ async function loadChallenges() {
 function renderChallenges() {
   const list = $("#challenge-list");
   list.innerHTML = "";
-  CHALLENGES.forEach((c) => {
-    const card = document.createElement("div");
-    card.className = "challenge-card" + (c.solved ? " solved" : "");
-    card.innerHTML = `
-      <p class="card-category">${c.category}${c.type === "terminal" ? " · &gt;_ interactive" : c.type === "web" ? " · &lt;/&gt; sandbox" : c.type === "ai" ? " · \u{1F5E3}\uFE0F conversation" : c.type === "quiz" ? " · \u2753 quiz" : ""}</p>
-      <p class="card-title">${c.title}</p>
-      <p class="card-points">${c.points} pts</p>
-      ${c.solved ? `<p class="card-solved-tag">✓ solved</p>` : ""}
-    `;
-    card.addEventListener("click", () => openChallenge(c));
-    list.appendChild(card);
+
+  if (CHALLENGES.length === 0) {
+    list.innerHTML = `<p class="empty-state">No challenges yet.</p>`;
+    return;
+  }
+
+  const query = CHALLENGE_SEARCH.trim().toLowerCase();
+  const filtered = query
+    ? CHALLENGES.filter((c) => {
+        const haystack = `${c.title} ${c.category} ${c.type} ${c.description || ""}`.toLowerCase();
+        return haystack.includes(query);
+      })
+    : CHALLENGES;
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<p class="empty-state">No challenges match "${CHALLENGE_SEARCH.trim()}".</p>`;
+    return;
+  }
+
+  const sections = new Map();
+  filtered.forEach((c) => {
+    const key = c.category || "misc";
+    if (!sections.has(key)) sections.set(key, []);
+    sections.get(key).push(c);
   });
+
+  Array.from(sections.keys())
+    .sort((a, b) => a.localeCompare(b))
+    .forEach((category) => {
+      const items = sections.get(category);
+      const solvedCount = items.filter((c) => c.solved).length;
+
+      const section = document.createElement("section");
+      section.className = "challenge-section";
+      section.innerHTML = `
+        <div class="challenge-section-header">
+          <h3 class="challenge-section-title">${category}</h3>
+          <span class="challenge-section-count">${solvedCount}/${items.length} solved</span>
+        </div>
+      `;
+      const grid = document.createElement("div");
+      grid.className = "challenge-grid";
+      items.forEach((c) => grid.appendChild(buildChallengeCard(c)));
+      section.appendChild(grid);
+      list.appendChild(section);
+    });
+}
+
+function buildChallengeCard(c) {
+  const card = document.createElement("div");
+  card.className = "challenge-card" + (c.solved ? " solved" : "");
+  card.innerHTML = `
+    <p class="card-category">${c.category}${c.type === "terminal" ? " · &gt;_ interactive" : c.type === "web" ? " · &lt;/&gt; sandbox" : c.type === "ai" ? " · \u{1F5E3}\uFE0F conversation" : c.type === "quiz" ? " · \u2753 quiz" : ""}</p>
+    <p class="card-title">${c.title}</p>
+    <p class="card-points">${c.points} pts</p>
+    ${c.solved ? `<p class="card-solved-tag">✓ solved</p>` : ""}
+  `;
+  card.addEventListener("click", () => openChallenge(c));
+  return card;
 }
 
 function openChallenge(c) {
@@ -814,6 +990,7 @@ async function onChangePassword(e) {
 // ---------------------------------------------------------------------------
 
 async function loadAdmin() {
+  await loadAdminTeams();
   await Promise.all([loadAdminStats(), loadAdminChallenges(), loadAdminUsers(), loadOllamaStatus()]);
 }
 
@@ -888,22 +1065,31 @@ async function loadAdminUsers() {
   const body = $("#admin-users-body");
   try {
     ADMIN_USERS = await api("/api/admin/users");
-    body.innerHTML = ADMIN_USERS.map(
-      (u) => `
+    body.innerHTML = ADMIN_USERS.map((u) => {
+      const teamOptions = [
+        `<option value="__individual__" ${u.team_is_individual ? "selected" : ""}>Independent (solo)</option>`,
+        ...ADMIN_TEAMS.map(
+          (t) => `<option value="${t.id}" ${!u.team_is_individual && t.name === u.team ? "selected" : ""}>${t.name}</option>`
+        ),
+      ].join("");
+      return `
       <tr>
         <td>${u.username}</td>
         <td>${u.display_name}</td>
-        <td>${u.team || "—"}</td>
+        <td><select class="row-select" data-move-user="${u.id}">${teamOptions}</select></td>
         <td>${u.is_admin ? '<span class="tag-active">yes</span>' : '<span class="tag-inactive">no</span>'}</td>
         <td>${
           u.username === ME.username
             ? ""
             : `<button class="row-action-btn" data-toggle-admin="${u.id}">${u.is_admin ? "Revoke admin" : "Make admin"}</button>`
         }</td>
-      </tr>`
-    ).join("");
+      </tr>`;
+    }).join("");
     $$("[data-toggle-admin]").forEach((btn) => {
       btn.addEventListener("click", () => onToggleAdmin(Number(btn.dataset.toggleAdmin)));
+    });
+    $$("[data-move-user]").forEach((select) => {
+      select.addEventListener("change", () => onMoveUserTeam(Number(select.dataset.moveUser), select.value));
     });
   } catch (err) {
     body.innerHTML = `<tr><td colspan="5" class="form-error">${err.message}</td></tr>`;
@@ -917,6 +1103,106 @@ async function onToggleAdmin(userId) {
   } catch (err) {
     alert(err.message);
   }
+}
+
+async function onMoveUserTeam(userId, teamValue) {
+  try {
+    const payload = teamValue === "__individual__" ? { individual: true } : { team_id: Number(teamValue) };
+    await api(`/api/admin/users/${userId}/move-team`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    await loadAdminTeams(); // member counts changed
+    await loadAdminUsers(); // team names shown for individuals may have changed
+  } catch (err) {
+    alert(err.message);
+    await loadAdminUsers(); // snap the dropdown back to the real value
+  }
+}
+
+async function loadAdminTeams() {
+  const body = $("#admin-teams-body");
+  try {
+    ADMIN_TEAMS = await api("/api/admin/teams");
+    body.innerHTML = ADMIN_TEAMS.map((t) => {
+      let action;
+      if (t.is_default) {
+        action = '<span class="field-note">default team</span>';
+      } else if (t.member_count > 0) {
+        action = '<span class="field-note">move members out to delete</span>';
+      } else {
+        action = `<button class="row-action-btn" data-delete-team="${t.id}">Delete</button>`;
+      }
+      return `<tr><td>${t.name}</td><td>${t.member_count}</td><td>${action}</td></tr>`;
+    }).join("");
+    $$("[data-delete-team]").forEach((btn) => {
+      btn.addEventListener("click", () => onDeleteTeam(Number(btn.dataset.deleteTeam)));
+    });
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="3" class="form-error">${err.message}</td></tr>`;
+  }
+}
+
+async function onCreateTeam(e) {
+  e.preventDefault();
+  const input = $("#new-team-name");
+  const result = $("#team-form-result");
+  result.textContent = "";
+  result.className = "form-result";
+  try {
+    await api("/api/admin/teams", {
+      method: "POST",
+      body: JSON.stringify({ name: input.value }),
+    });
+    input.value = "";
+    await loadAdminTeams();
+    await loadAdminUsers(); // team dropdowns need the new option
+    await loadAdminStats();
+  } catch (err) {
+    result.textContent = err.message;
+    result.className = "form-result err";
+  }
+}
+
+async function onDeleteTeam(teamId) {
+  if (!confirm("Delete this team? This can't be undone.")) return;
+  try {
+    await api(`/api/admin/teams/${teamId}`, { method: "DELETE" });
+    await loadAdminTeams();
+    await loadAdminStats();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function updateFlagPreview() {
+  const preview = flagPreviewFor($("#cf-flag").value);
+  const el = $("#cf-flag-preview");
+  if (preview) {
+    el.textContent = `Will save as: ${preview}`;
+    el.classList.remove("hidden");
+  } else {
+    el.textContent = "";
+    el.classList.add("hidden");
+  }
+}
+
+function onGenerateFlag() {
+  // Build a seed from the challenge's own info - title, category, type,
+  // difficulty - plus a random component so two challenges with similar
+  // titles still get unrelated flags, and regenerating gives a fresh one.
+  const parts = [
+    $("#cf-title").value.trim(),
+    $("#cf-category").value.trim(),
+    $("#cf-type").value,
+    $("#cf-difficulty").value,
+    $("#cf-points").value,
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2),
+  ].filter(Boolean);
+  const seed = parts.join("|");
+  $("#cf-flag").value = seed;
+  updateFlagPreview();
 }
 
 function openChallengeForm(c) {
@@ -964,7 +1250,16 @@ function openChallengeForm(c) {
   [0, 1, 2, 3].forEach((i) => { $(`#cf-quiz-opt-${i}`).value = quizOptions[i] || ""; });
   $("#cf-quiz-correct").value = quizConfig.correct_index ?? 0;
   $("#cf-flag").value = "";
-  $("#cf-flag").placeholder = c ? "leave blank to keep existing flag" : "flag{...}";
+  $("#cf-flag").placeholder = c ? "leave blank to keep existing flag" : "e.g. a memorable phrase - not the flag itself";
+  $("#cf-flag-preview").textContent = "";
+  $("#cf-flag-preview").classList.add("hidden");
+  if (c && c.flag) {
+    $("#cf-flag-current").textContent = `Current flag: ${c.flag}`;
+    $("#cf-flag-current").classList.remove("hidden");
+  } else {
+    $("#cf-flag-current").textContent = "";
+    $("#cf-flag-current").classList.add("hidden");
+  }
   $("#cf-active").checked = c ? c.is_active : true;
   $("#cf-delete").classList.toggle("hidden", !c);
   $("#challenge-form-result").textContent = "";
@@ -1106,23 +1401,36 @@ async function onSaveChallenge(e) {
   if (flag) payload.flag = flag;
 
   try {
+    let saved;
     if (EDITING_CHALLENGE_ID) {
-      await api(`/api/admin/challenges/${EDITING_CHALLENGE_ID}`, {
+      saved = await api(`/api/admin/challenges/${EDITING_CHALLENGE_ID}`, {
         method: "PUT",
         body: JSON.stringify(payload),
       });
     } else {
       if (!flag) throw new Error("flag is required for a new challenge");
-      await api("/api/admin/challenges", {
+      saved = await api("/api/admin/challenges", {
         method: "POST",
         body: JSON.stringify(payload),
       });
+      // Further saves in this session update the challenge we just made
+      // instead of creating duplicates.
+      EDITING_CHALLENGE_ID = saved.id;
+      $("#cf-id").value = saved.id;
+      $("#challenge-form-title").textContent = "Edit challenge";
+      $("#cf-delete").classList.remove("hidden");
+    }
+    $("#cf-flag").value = "";
+    $("#cf-flag-preview").textContent = "";
+    $("#cf-flag-preview").classList.add("hidden");
+    if (saved.flag) {
+      $("#cf-flag-current").textContent = `Current flag: ${saved.flag} - copy this into the challenge content (description, terminal files, etc.) wherever players need to find it.`;
+      $("#cf-flag-current").classList.remove("hidden");
     }
     result.textContent = "Saved.";
     result.className = "form-result ok";
     await loadAdminChallenges();
     await loadAdminStats();
-    setTimeout(() => $("#modal-challenge-form").classList.add("hidden"), 400);
   } catch (err) {
     result.textContent = err.message;
     result.className = "form-result err";

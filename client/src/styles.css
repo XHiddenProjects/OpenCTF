@@ -100,6 +100,28 @@ input[type="number"], select {
 input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 
+.password-row { position: relative; display: flex; }
+.password-row input[type="password"], .password-row input[type="text"] {
+  width: 100%;
+  padding-right: 38px;
+}
+.password-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius);
+}
+.password-toggle:hover { color: var(--text); }
+.password-toggle:focus-visible { outline: 1px solid var(--accent); }
+
 .btn-primary {
   background: var(--accent);
   color: #1a1300;
@@ -168,6 +190,40 @@ select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 .content { flex: 1; padding: 28px 32px; overflow-y: auto; }
 .view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .view-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.view-header-actions { display: flex; align-items: center; gap: 10px; }
+.search-input {
+  width: 220px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.search-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.search-input::placeholder { color: var(--text-dim); }
+
+/* ---- Challenge sections ---- */
+.challenge-section { margin-bottom: 28px; }
+.challenge-section:last-child { margin-bottom: 0; }
+.challenge-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.challenge-section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+.challenge-section-count { font-size: 11px; color: var(--text-dim); font-family: "IBM Plex Mono", monospace; }
+.empty-state { color: var(--text-dim); font-size: 13px; padding: 24px 0; }
 
 /* ---- Challenge grid ---- */
 .challenge-grid {
@@ -340,9 +396,25 @@ textarea.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
   margin-right: 6px;
 }
 .row-action-btn:hover { color: var(--text); border-color: var(--accent-dim); }
+.row-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-size: 12px;
+  width: auto !important;
+}
+.row-select:hover { border-color: var(--accent-dim); }
+.inline-form { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.inline-form input { width: 240px; }
 .tag-active { color: var(--ok); font-size: 12px; }
 .tag-inactive { color: var(--text-dim); font-size: 12px; }
 .field-note { color: var(--text-dim); font-weight: 400; }
+.flag-answer-row { display: flex; flex-direction: row; gap: 8px; align-items: stretch; }
+.flag-answer-row input { flex: 1; min-width: 0; width: auto !important; }
+.flag-answer-row .btn-ghost { flex: 0 0 auto; white-space: nowrap; }
+#cf-flag-preview { margin-top: -4px; margin-bottom: 4px; word-break: break-all; }
 
 /* ---- Toggle switch (used in place of bare checkboxes in the admin forms) ---- */
 .toggle-row {

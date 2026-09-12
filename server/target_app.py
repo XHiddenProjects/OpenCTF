@@ -119,7 +119,7 @@ window.addEventListener('DOMContentLoaded', function () {{
 
 
 def challenge_secret(config):
-    return str(config.get("_team_flag") or config.get("secret") or "flag{configure_the_web_challenge}")
+    return str(config.get("_team_flag") or config.get("secret") or "OCTF{configure_the_web_challenge}")
 
 
 @target_app.route("/target/<int:challenge_id>/", methods=["GET"])

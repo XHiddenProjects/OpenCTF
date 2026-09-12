@@ -1,7 +1,7 @@
 """
 CTF Platform - Server
 ----------------------
-Flask + SQLAlchemy + JWT backend for a OpenCTF.
+Flask + SQLAlchemy + JWT backend for a lab CTF.
 
 Run:
     pip install -r requirements.txt
@@ -60,6 +60,10 @@ db = SQLAlchemy(app)
 jwt = JWTManager(app)
 
 FLAG_PEPPER = os.environ.get("FLAG_PEPPER", "change-me-pepper")
+# Every flag in this platform - preset or admin-created - looks like
+# OCTF{<32-char md5 hex>}, matching the "HTB{...}"-style convention used by
+# Hack The Box and similar platforms.
+FLAG_PREFIX = "OCTF"
 TARGET_ACCESS_SECRET = os.environ.get("TARGET_ACCESS_SECRET", "change-me-target-access-secret")
 TARGET_PROCESS = None
 
@@ -74,6 +78,12 @@ class Team(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # True for the auto-created, one-person "team" a solo player gets instead
+    # of picking a real team. Never shown in team-management UI or the
+    # registration dropdown, and never shared between two different users -
+    # each solo player gets their own, named after their username, so
+    # unrelated solo players never end up sharing solve state with strangers.
+    is_individual = db.Column(db.Boolean, nullable=False, default=False)
     users = db.relationship("User", backref="team", lazy=True)
 
 
@@ -104,6 +114,9 @@ class User(db.Model):
             "bio": self.bio or "",
             "avatar": self.avatar or "🛡️",
             "team": self.team.name if self.team else None,
+            # Lets the admin panel tell "on a real team" apart from "playing
+            # solo" without guessing from the team name alone.
+            "team_is_individual": self.team.is_individual if self.team else True,
             "is_admin": self.is_admin,
         }
 
@@ -163,6 +176,10 @@ class Challenge(db.Model):
             "web_config": self.web_config,
             "ai_config": self.ai_config,
             "quiz_config": self.quiz_config,
+            # The actual flag literal, e.g. "OCTF{3858f622...}". Only ever
+            # sent on admin-only routes, so admins can see/copy the current
+            # flag instead of it being write-only.
+            "flag": self.flag_template,
         }
 
 
@@ -208,12 +225,23 @@ def solved_challenge_ids(team_id):
     return {r.challenge_id for r in rows}
 
 
+def create_individual_team(username):
+    """Give a solo player their own one-person team, named after them.
+    Guaranteed unique since usernames are unique - this is what makes a solo
+    player's "team" on the scoreboard just show as their own username,
+    and what stops unrelated solo players from ever sharing solve state."""
+    team = Team(name=username, is_individual=True)
+    db.session.add(team)
+    db.session.flush()
+    return team
+
+
 def team_challenge_flag(team_id, challenge):
     row = TeamChallengeFlag.query.filter_by(
         team_id=team_id, challenge_id=challenge.id
     ).first()
     template = challenge.flag_template or ""
-    if row and (not row.flag.startswith("flag{") or not row.flag.endswith("}") or not re.fullmatch(r"[0-9a-f]{32}", row.flag[5:-1])):
+    if row and not re.fullmatch(rf"{FLAG_PREFIX}\{{[0-9a-f]{{32}}\}}", row.flag or ""):
         identity = secrets.token_urlsafe(12).replace("-", "").replace("_", "")
         migrated_flag = flag_with_identity(template, identity)
         if row.flag != migrated_flag:
@@ -233,7 +261,17 @@ def team_challenge_flag(team_id, challenge):
 
 
 def flag_with_identity(template, identity):
-    return f"flag{{{hashlib.md5(identity.encode(), usedforsecurity=False).hexdigest()}}}"
+    return f"{FLAG_PREFIX}{{{hashlib.md5(identity.encode(), usedforsecurity=False).hexdigest()}}}"
+
+
+def flag_from_answer(answer):
+    """Turn whatever an admin types (or the "Generate flag" button produces)
+    into the canonical OCTF{<md5>} format. This means the flag a player has
+    to submit never contains readable text - two different challenges with
+    related answers still produce unrelated-looking flags, and the flag
+    itself gives no hint about the content."""
+    digest = hashlib.md5(str(answer).strip().encode("utf-8"), usedforsecurity=False).hexdigest()
+    return f"{FLAG_PREFIX}{{{digest}}}"
 
 
 def team_flag_identity(team_id, challenge):
@@ -304,7 +342,7 @@ def ai_system_prompt(config):
 # ---------------------------------------------------------------------------
 # A challenge's terminal_fs is a JSON-encoded nested dict. Directories are
 # dicts, files are strings (their content). e.g.
-#   {"home": {"user": {"notes.txt": "hi", "backup": {".flag.txt": "flag{...}"}}}}
+#   {"home": {"user": {"notes.txt": "hi", "backup": {".flag.txt": "OCTF{...}"}}}}
 # Commands are resolved entirely server-side so the flag is never present
 # in any response until the player actually 'cat's the right file.
 
@@ -400,20 +438,29 @@ def register():
     data = request.get_json(force=True)
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
-    team_name = (data.get("team_name") or "").strip()
+    team_id = data.get("team_id")
 
-    if not username or not password or not team_name:
-        return jsonify(error="username, password, and team_name are required"), 400
+    if not username or not password:
+        return jsonify(error="username and password are required"), 400
     if len(password) < 8:
         return jsonify(error="password must be at least 8 characters"), 400
     if User.query.filter_by(username=username).first():
         return jsonify(error="username already taken"), 409
 
-    team = Team.query.filter_by(name=team_name).first()
-    if not team:
-        team = Team(name=team_name)
-        db.session.add(team)
-        db.session.flush()
+    # Players pick from real teams an admin has already created. Leaving it
+    # blank ("Independent") gives them their own personal team instead of
+    # lumping every solo player into one shared team - that used to mean
+    # unrelated solo players accidentally shared solve state and a combined
+    # scoreboard row with total strangers.
+    if team_id not in (None, "", 0, "0"):
+        try:
+            team = Team.query.get(int(team_id))
+        except (TypeError, ValueError):
+            team = None
+        if not team or team.is_individual:
+            return jsonify(error="selected team does not exist"), 400
+    else:
+        team = create_individual_team(username)
 
     user = User(username=username, team_id=team.id, display_name=username)
     user.set_password(password)
@@ -441,6 +488,21 @@ def login():
         team=user.team.name if user.team else None,
         is_admin=user.is_admin,
     )
+
+
+@app.get("/api/teams")
+def list_teams():
+    """Public list of real teams a new player can pick from at registration.
+    Individual (one-person) teams and the internal "admins" team are never
+    shown here - "Independent" isn't a real team to join, it's just what the
+    UI calls "leave this blank and get your own personal team"."""
+    teams = (
+        Team.query.filter_by(is_individual=False)
+        .filter(Team.name != "admins")
+        .order_by(Team.name)
+        .all()
+    )
+    return jsonify([{"id": t.id, "name": t.name} for t in teams])
 
 
 # ---------------------------------------------------------------------------
@@ -838,7 +900,7 @@ def admin_stats():
         return err
     return jsonify(
         users=User.query.count(),
-        teams=Team.query.count(),
+        teams=Team.query.filter_by(is_individual=False).count(),
         challenges=Challenge.query.count(),
         active_challenges=Challenge.query.filter_by(is_active=True).count(),
         correct_submissions=Submission.query.filter_by(correct=True).count(),
@@ -962,8 +1024,8 @@ def create_challenge():
         description=fields["description"],
         points=fields["points"],
         difficulty=fields.get("difficulty", "medium"),
-        flag_hash=Challenge.hash_flag(data["flag"]),
-        flag_template=data["flag"],
+        flag_hash=Challenge.hash_flag(flag_from_answer(data["flag"])),
+        flag_template=flag_from_answer(data["flag"]),
         hint=fields.get("hint"),
         rules=fields.get("rules"),
         file_url=fields.get("file_url"),
@@ -997,8 +1059,9 @@ def update_challenge(challenge_id):
     for key, value in fields.items():
         setattr(challenge, key, value)
     if data.get("flag"):
-        challenge.flag_hash = Challenge.hash_flag(data["flag"])
-        challenge.flag_template = data["flag"]
+        computed_flag = flag_from_answer(data["flag"])
+        challenge.flag_hash = Challenge.hash_flag(computed_flag)
+        challenge.flag_template = computed_flag
 
     db.session.commit()
     return jsonify(challenge.to_admin_dict())
@@ -1049,6 +1112,109 @@ def toggle_admin(user_id):
     return jsonify(target.to_public_dict())
 
 
+@app.post("/api/admin/users/<int:user_id>/move-team")
+@jwt_required()
+def move_user_team(user_id):
+    err = admin_required()
+    if err:
+        return err
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify(error="user not found"), 404
+
+    data = request.get_json(force=True)
+    old_team = target.team
+
+    if data.get("individual"):
+        new_team = create_individual_team(target.username)
+    else:
+        team_id = data.get("team_id")
+        try:
+            new_team = Team.query.get(int(team_id))
+        except (TypeError, ValueError):
+            new_team = None
+        if not new_team or new_team.is_individual:
+            return jsonify(error="team not found"), 404
+
+    target.team_id = new_team.id
+    db.session.commit()
+
+    # An individual team only ever had one member. If they just moved off
+    # it, it's dead weight - clean it up instead of letting these pile up.
+    if old_team and old_team.is_individual and old_team.id != new_team.id:
+        if User.query.filter_by(team_id=old_team.id).count() == 0:
+            db.session.delete(old_team)
+            db.session.commit()
+
+    return jsonify(target.to_public_dict())
+
+
+@app.get("/api/admin/teams")
+@jwt_required()
+def admin_list_teams():
+    err = admin_required()
+    if err:
+        return err
+    # Individual (one-person, auto-created) teams aren't something an admin
+    # manages here - they're an implementation detail behind "Independent".
+    teams = Team.query.filter_by(is_individual=False).order_by(Team.name).all()
+    return jsonify([
+        {
+            "id": t.id,
+            "name": t.name,
+            "member_count": User.query.filter_by(team_id=t.id).count(),
+            "is_default": t.name == "admins",
+        }
+        for t in teams
+    ])
+
+
+@app.post("/api/admin/teams")
+@jwt_required()
+def create_team():
+    err = admin_required()
+    if err:
+        return err
+
+    data = request.get_json(force=True)
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify(error="team name is required"), 400
+    if len(name) > 80:
+        return jsonify(error="team name is too long"), 400
+    if Team.query.filter(db.func.lower(Team.name) == name.lower()).first():
+        return jsonify(error="a team with that name already exists"), 409
+
+    team = Team(name=name)
+    db.session.add(team)
+    db.session.commit()
+    return jsonify(id=team.id, name=team.name, member_count=0, is_default=False), 201
+
+
+@app.delete("/api/admin/teams/<int:team_id>")
+@jwt_required()
+def delete_team(team_id):
+    err = admin_required()
+    if err:
+        return err
+
+    team = Team.query.get(team_id)
+    if not team:
+        return jsonify(error="team not found"), 404
+    if team.is_individual:
+        return jsonify(error="that's a solo player's personal team, not a manageable team"), 400
+    if team.name == "admins":
+        return jsonify(error='the "admins" team is required by the platform and can\'t be deleted'), 400
+    member_count = User.query.filter_by(team_id=team.id).count()
+    if member_count:
+        return jsonify(error=f"move all {member_count} member(s) off this team before deleting it"), 400
+
+    db.session.delete(team)
+    db.session.commit()
+    return jsonify(message="deleted")
+
+
 @app.get("/api/health")
 def health():
     return jsonify(status="ok", time=datetime.utcnow().isoformat())
@@ -1090,6 +1256,27 @@ def migrate_submission_table():
         connection.execute(db.text("DROP TABLE submission_old"))
 
 
+def migrate_shared_independent_team():
+    """One-time cleanup for databases created before solo players got their
+    own individual team: split any users still sharing the old literal
+    "Independent" team out into their own personal teams, and hide that old
+    team from view. Safe to run every startup - it's a no-op once nobody is
+    left on it."""
+    columns = {c["name"] for c in db.inspect(db.engine).get_columns("team")}
+    if "is_individual" not in columns:
+        with db.engine.begin() as connection:
+            connection.execute(db.text("ALTER TABLE team ADD COLUMN is_individual BOOLEAN NOT NULL DEFAULT 0"))
+
+    old_shared = Team.query.filter_by(name="Independent").first()
+    if not old_shared:
+        return
+    stranded_users = User.query.filter_by(team_id=old_shared.id).all()
+    for user in stranded_users:
+        user.team_id = create_individual_team(user.username).id
+    old_shared.is_individual = True
+    db.session.commit()
+
+
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
@@ -1098,6 +1285,7 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
         migrate_submission_table()
+        migrate_shared_independent_team()
         # Keep the small lab database usable when new challenge metadata is added.
         existing_columns = {column["name"] for column in db.inspect(db.engine).get_columns("challenge")}
         with db.engine.begin() as connection:
@@ -1127,6 +1315,7 @@ if __name__ == "__main__":
             db.session.add(admin)
             db.session.commit()
             print("Created default admin user 'admin' - CHANGE THE PASSWORD.")
+        db.session.commit()
 
     target_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "target_app.py")
     target_env = os.environ.copy()
