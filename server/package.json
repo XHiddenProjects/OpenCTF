@@ -1,0 +1,32 @@
+{
+  "name": "openctf-server",
+  "version": "1.0.0",
+  "description": "OpenCTF lab CTF platform server (Flask API + sandboxed target-website service), bundled as Python source with a Node launcher. Requires Python 3.10+ already installed - npm cannot install a Python runtime for you.",
+  "bin": {
+    "openctf-server": "bin/openctf-server.js"
+  },
+  "files": [
+    "app.py",
+    "target_app.py",
+    "seed_challenges.py",
+    "cli.py",
+    "__init__.py",
+    "requirements.txt",
+    "PACKAGE_README.md",
+    "bin/"
+  ],
+  "scripts": {
+    "postinstall": "node bin/postinstall.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["ctf", "capture-the-flag", "security", "lab", "flask", "python"],
+  "license": "MIT",
+  "homepage": "https://github.com/XHiddenProjects/OpenCTF",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XHiddenProjects/OpenCTF.git",
+    "directory": "server"
+  }
+}

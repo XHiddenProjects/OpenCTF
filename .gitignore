@@ -2,6 +2,12 @@ server/venv/
 server/__pycache__/
 server/*.db
 server/.env
+server/instance/
+server/dist/
+server/build/
+server/*.egg-info/
+server/*.tgz
+server/node_modules/
 
 client/node_modules/
 client/dist/

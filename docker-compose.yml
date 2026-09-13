@@ -1,0 +1,69 @@
+# Brings up the OpenCTF server: the main API (gunicorn) and the sandboxed
+# target-website service, as two separate containers sharing one database.
+#
+# They're kept as separate services on purpose - target_app.py hosts the
+# intentionally-vulnerable challenge pages, and giving it its own container
+# means it can be firewalled/rate-limited separately from the real API if
+# you're running this somewhere more exposed than a private lab network.
+#
+# Usage:
+#   cp .env.example .env      # fill in real secrets first!
+#   docker compose up --build
+#   docker compose exec api python seed_challenges.py   # load the starter challenges
+#
+# The client (Electron desktop app) is not part of this compose file - it's
+# a separate download/build per platform. Point it at this server's address
+# in Settings once it's running.
+
+services:
+  api:
+    build: ./server
+    ports:
+      - "5000:5000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      FLAG_PEPPER: ${FLAG_PEPPER:?set FLAG_PEPPER in .env}
+      TARGET_ACCESS_SECRET: ${TARGET_ACCESS_SECRET:?set TARGET_ACCESS_SECRET in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      DATABASE_URL: sqlite:////app/instance/ctf.db
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      # The client loads this as an iframe src, so it needs to be an address
+      # reachable from wherever the client runs, not "localhost".
+      TARGET_SERVER_URL: ${TARGET_SERVER_URL:-http://localhost:5001}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+    volumes:
+      - ctf-data:/app/instance
+    command: ["gunicorn", "-w", "1", "-b", "0.0.0.0:5000", "app:app"]
+    restart: unless-stopped
+
+  target:
+    build: ./server
+    ports:
+      - "5001:5001"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      TARGET_ACCESS_SECRET: ${TARGET_ACCESS_SECRET:?set TARGET_ACCESS_SECRET in .env}
+      DATABASE_URL: sqlite:////app/instance/ctf.db
+      TARGET_PORT: "5001"
+    volumes:
+      - ctf-data:/app/instance
+    command: ["python", "target_app.py"]
+    restart: unless-stopped
+
+  # Optional: run Ollama in the same compose stack for AI-type challenges.
+  # Only starts with `docker compose --profile ai up`. Needs real memory -
+  # see README for hardware notes before enabling this.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ai"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ctf-data:
+  ollama-data:

@@ -1,6 +1,6 @@
 {
-  "name": "OpenCTF",
-  "version": "0.1.0",
+  "name": "openctf",
+  "version": "1.0.0",
   "description": "Desktop client for the lab CTF platform",
   "main": "src/main.js",
   "scripts": {
@@ -14,7 +14,10 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^44.3.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.16.1"
+  },
+  "overrides": {
+    "electron-winstaller": "^5.4.4"
   },
   "build": {
     "appId": "lab.ctf.client",
@@ -27,21 +30,30 @@
       "src/**/*"
     ],
     "win": {
-      "target": ["portable", "nsis"],
+      "target": [
+        "portable",
+        "nsis"
+      ],
       "icon": "build/icon.ico"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build/icon.png",
       "category": "public.app-category.developer-tools"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "build/icons",
       "category": "Development"
     }
   },
   "allowScripts": {
-    "electron-winstaller@5.4.0": true
+    "electron-winstaller@5.4.4": true
   }
 }

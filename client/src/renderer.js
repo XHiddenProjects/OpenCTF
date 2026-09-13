@@ -86,6 +86,8 @@ let TARGET_NAVIGATING = false;
 let ADMIN_CHALLENGES = [];
 let ADMIN_USERS = [];
 let ADMIN_TEAMS = [];
+let OLLAMA_MODELS = [];
+let OLLAMA_DEFAULT_MODEL = null;
 let EDITING_CHALLENGE_ID = null;
 
 const $ = (sel) => document.querySelector(sel);
@@ -1004,9 +1006,37 @@ async function loadOllamaStatus() {
         ? `Ollama online, model missing · run: ollama pull ${body.model}`
       : `Ollama offline · start Ollama at ${body.url} and pull ${body.model}`;
     status.className = `ollama-status ${body.available && body.model_available ? "ok" : "err"}`;
+    OLLAMA_MODELS = body.models || [];
+    OLLAMA_DEFAULT_MODEL = body.model || null;
+    populateAiModelDropdown(body.model);
   } catch (err) {
     status.textContent = err.message;
     status.className = "ollama-status err";
+    OLLAMA_MODELS = [];
+    OLLAMA_DEFAULT_MODEL = null;
+    populateAiModelDropdown(null);
+  }
+}
+
+function populateAiModelDropdown(serverDefault) {
+  const select = $("#cf-ai-model");
+  const previousValue = select.value;
+  const defaultLabel = serverDefault ? `Use server default (${serverDefault})` : "Use server default";
+  const options = [`<option value="">${defaultLabel}</option>`];
+  OLLAMA_MODELS.forEach((name) => {
+    options.push(`<option value="${name}">${name}</option>`);
+  });
+  select.innerHTML = options.join("");
+  // Keep whatever was selected if it's still a valid option (e.g. a model
+  // this specific challenge is already configured to use).
+  if ([...select.options].some((o) => o.value === previousValue)) {
+    select.value = previousValue;
+  }
+  const note = $("#cf-ai-model-note");
+  if (OLLAMA_MODELS.length === 0) {
+    note.textContent = "No models detected - is Ollama running? Falling back to the server default either way.";
+  } else {
+    note.textContent = `${OLLAMA_MODELS.length} model(s) currently installed on this Ollama instance.`;
   }
 }
 
@@ -1233,6 +1263,18 @@ function openChallengeForm(c) {
   $("#cf-web-success").value = webConfig.success_text || "You found the hidden response.";
   let aiConfig = {};
   try { aiConfig = c && c.ai_config ? JSON.parse(c.ai_config) : {}; } catch { aiConfig = {}; }
+  populateAiModelDropdown(OLLAMA_DEFAULT_MODEL);
+  $("#cf-ai-model").value = aiConfig.model || "";
+  if (aiConfig.model && $("#cf-ai-model").value !== aiConfig.model) {
+    // This challenge is configured for a model that isn't currently
+    // installed (or Ollama couldn't be reached) - keep it visible instead
+    // of silently reverting to the server default.
+    const opt = document.createElement("option");
+    opt.value = aiConfig.model;
+    opt.textContent = `${aiConfig.model} (not currently installed)`;
+    $("#cf-ai-model").appendChild(opt);
+    $("#cf-ai-model").value = aiConfig.model;
+  }
   $("#cf-ai-difficulty").value = aiConfig.difficulty || "medium";
   $("#cf-ai-persona").value = aiConfig.persona || "A cautious support engineer";
   $("#cf-ai-marker").value = aiConfig.success_marker || "ACCESS_GRANTED";
@@ -1376,6 +1418,7 @@ async function onSaveChallenge(e) {
   }
   if ($("#cf-type").value === "ai") {
     payload.ai_config = JSON.stringify({
+      model: $("#cf-ai-model").value || null,
       difficulty: $("#cf-ai-difficulty").value,
       persona: $("#cf-ai-persona").value,
       success_marker: $("#cf-ai-marker").value,

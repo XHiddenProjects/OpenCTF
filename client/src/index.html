@@ -364,6 +364,10 @@
           <div id="cf-ai-wrap" class="builder-panel hidden">
             <h4>AI conversation builder</h4>
             <p>Configure the person players must persuade. The flag is never sent to Ollama.</p>
+            <label>AI model
+              <select id="cf-ai-model"><option value="">Use server default</option></select>
+            </label>
+            <p id="cf-ai-model-note" class="field-note"></p>
             <div class="form-grid">
               <label>Conversation difficulty
                 <select id="cf-ai-difficulty"><option value="easy">Easy · cooperative</option><option value="medium">Medium · cautious</option><option value="hard">Hard · skeptical</option><option value="expert">Expert · adversarial</option></select>

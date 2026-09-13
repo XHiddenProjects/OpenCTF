@@ -37,6 +37,7 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, jwt_required, get_jwt_identity
 )
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy.exc import IntegrityError
 
 # ---------------------------------------------------------------------------
 # App / config
@@ -299,18 +300,18 @@ def ollama_request(path, payload=None, timeout=3):
         return json.loads(response.read().decode("utf-8"))
 
 
-def ollama_status():
+def ollama_status(model=None):
+    target_model = model or app.config["OLLAMA_MODEL"]
     try:
         data = ollama_request("/api/tags", timeout=1.5)
-        models = [model.get("name") for model in data.get("models", [])]
-        configured_model = app.config["OLLAMA_MODEL"]
-        model_available = configured_model in models or any(
-            model_name and model_name.split(":", 1)[0] == configured_model.split(":", 1)[0]
+        models = [model_info.get("name") for model_info in data.get("models", [])]
+        model_available = target_model in models or any(
+            model_name and model_name.split(":", 1)[0] == target_model.split(":", 1)[0]
             for model_name in models
         )
-        return {"available": True, "model_available": model_available, "url": app.config["OLLAMA_URL"], "model": configured_model, "models": models}
+        return {"available": True, "model_available": model_available, "url": app.config["OLLAMA_URL"], "model": target_model, "models": models}
     except (OSError, ValueError, urllib.error.URLError):
-        return {"available": False, "model_available": False, "url": app.config["OLLAMA_URL"], "model": app.config["OLLAMA_MODEL"], "models": []}
+        return {"available": False, "model_available": False, "url": app.config["OLLAMA_URL"], "model": target_model, "models": []}
 
 
 def normalize_marker_text(text):
@@ -819,14 +820,14 @@ def ai_conversation(challenge_id):
     if not messages or messages[-1]["role"] != "user":
         return jsonify(error="send a user message"), 400
 
-    status = ollama_status()
+    status = ollama_status(config.get("model"))
     if not status["available"]:
         return jsonify(error="Ollama is unavailable. Ask an admin to start it and pull the configured model."), 503
     if not status["model_available"]:
         return jsonify(error=f"Ollama is online, but model '{status['model']}' is not installed. Run: ollama pull {status['model']}"), 503
     try:
         result = ollama_request("/api/chat", {
-            "model": app.config["OLLAMA_MODEL"],
+            "model": status["model"],
             "stream": False,
             "messages": [{"role": "system", "content": ai_system_prompt(config)}] + messages,
             "options": {"temperature": float(config.get("temperature", 0.7))},
@@ -1281,7 +1282,13 @@ def migrate_shared_independent_team():
 # Entrypoint
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+# ---------------------------------------------------------------------------
+# Database bootstrap - runs unconditionally at import time (not just under
+# `python app.py`) so this also works correctly under a WSGI server like
+# gunicorn, which imports this module rather than executing it as __main__.
+# ---------------------------------------------------------------------------
+
+def bootstrap_database():
     with app.app_context():
         db.create_all()
         migrate_submission_table()
@@ -1304,19 +1311,43 @@ if __name__ == "__main__":
         db.create_all()
         # create a default admin if none exists (lab convenience only!)
         if not User.query.filter_by(is_admin=True).first():
-            admin_team = Team.query.filter_by(name="admins").first() or Team(name="admins")
-            db.session.add(admin_team)
-            db.session.flush()
-            admin = User(
-                username="admin", team_id=admin_team.id, is_admin=True,
-                display_name="Admin", avatar="🛠️",
-            )
-            admin.set_password(os.environ.get("ADMIN_PASSWORD", "changeme123"))
-            db.session.add(admin)
-            db.session.commit()
-            print("Created default admin user 'admin' - CHANGE THE PASSWORD.")
+            try:
+                admin_team = Team.query.filter_by(name="admins").first() or Team(name="admins")
+                db.session.add(admin_team)
+                db.session.flush()
+                admin = User(
+                    username="admin", team_id=admin_team.id, is_admin=True,
+                    display_name="Admin", avatar="🛠️",
+                )
+                admin.set_password(os.environ.get("ADMIN_PASSWORD", "changeme123"))
+                db.session.add(admin)
+                db.session.commit()
+                print("Created default admin user 'admin' - CHANGE THE PASSWORD.")
+            except IntegrityError:
+                # Another worker process (e.g. a second gunicorn worker
+                # starting at the same moment) already created it - fine.
+                db.session.rollback()
         db.session.commit()
 
+
+bootstrap_database()
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint (dev mode only - `python app.py`)
+#
+# Running under a real WSGI server (gunicorn, etc.) never executes this
+# block, since it imports the module instead of running it directly - the
+# database bootstrap above already covers that case. This block is purely
+# the single-process dev/lab convenience path: it also spawns the sandboxed
+# target_app.py service as a child process, which only makes sense here -
+# under gunicorn with multiple workers, each worker importing this module
+# would otherwise try to spawn its own competing copy on the same port. In
+# a container/production deployment, run target_app.py as its own separate
+# process instead (see the Dockerfile / docker-compose.yml).
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
     target_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "target_app.py")
     target_env = os.environ.copy()
     target_env.setdefault("TARGET_PORT", "5001")

@@ -21,7 +21,12 @@ from urllib.parse import quote
 
 from flask import Flask, abort, jsonify, request
 
-from app import Challenge, TARGET_ACCESS_SECRET, app as ctf_app, team_challenge_flag
+try:
+    # Installed as the `openctf-server` PyPI package.
+    from openctf_server.app import Challenge, TARGET_ACCESS_SECRET, app as ctf_app, team_challenge_flag
+except ImportError:
+    # Running directly from a cloned copy of the repo (`python target_app.py`).
+    from app import Challenge, TARGET_ACCESS_SECRET, app as ctf_app, team_challenge_flag
 
 
 target_app = Flask(__name__)

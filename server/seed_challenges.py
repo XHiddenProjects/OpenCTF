@@ -19,7 +19,12 @@ import base64
 import codecs
 import json
 
-from app import app, db, Challenge, flag_from_answer
+try:
+    # Installed as the `openctf-server` PyPI package.
+    from openctf_server.app import app, db, Challenge, flag_from_answer
+except ImportError:
+    # Running directly from a cloned copy of the repo (`python seed_challenges.py`).
+    from app import app, db, Challenge, flag_from_answer
 
 CHALLENGES = [
     # ---------------------------------------------------------------- WEB

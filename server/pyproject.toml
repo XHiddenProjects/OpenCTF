@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openctf-server"
+version = "1.0.0"
+description = "Flask API and sandboxed target-website service for the OpenCTF lab CTF platform"
+readme = "PACKAGE_README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "OpenCTF" }]
+keywords = ["ctf", "capture-the-flag", "security", "lab", "flask"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Framework :: Flask",
+    "Topic :: Security",
+    "Topic :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "Flask>=3.0.3",
+    "Flask-SQLAlchemy>=3.1.1",
+    "Flask-Cors>=4.0.1",
+    "Flask-JWT-Extended>=4.6.0",
+    "Werkzeug>=3.0.3",
+    "gunicorn>=22.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/XHiddenProjects/OpenCTF"
+Repository = "https://github.com/XHiddenProjects/OpenCTF"
+"Security Policy" = "https://github.com/XHiddenProjects/OpenCTF/blob/main/SECURITY.md"
+
+[project.scripts]
+openctf-server = "openctf_server.cli:main"
+openctf-server-target = "openctf_server.cli:target"
+openctf-server-seed = "openctf_server.cli:seed"
+
+[tool.setuptools]
+# Publishes the existing flat server/ directory (app.py, target_app.py,
+# seed_challenges.py, cli.py) under the `openctf_server` namespace, without
+# physically moving any of those files - keeps `python app.py` etc. working
+# exactly as before for anyone running from a cloned copy of the repo.
+packages = ["openctf_server"]
+package-dir = { "openctf_server" = "." }
+
+[tool.setuptools.package-data]
+openctf_server = ["PACKAGE_README.md"]

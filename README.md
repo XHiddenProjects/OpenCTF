@@ -61,6 +61,74 @@ The default database is SQLite at `server/instance/ctf.db`. Flags are not stored
 - npm
 - Electron is installed locally by `npm install`
 
+## Installation
+
+OpenCTF has two halves that install separately: the **client** (the Electron desktop app players and admins run) and the **server** (the Flask API + sandboxed target-website service someone has to host). Whichever way you install either one, the client still needs a running server to point at — see **Quick Start** below if you're standing one up yourself.
+
+### Installing the client
+
+**Option A: npm**
+
+```bash
+npm install -g openctf
+openctf
+```
+
+**Option B: download a prebuilt release** — grab the build for your OS from the project's Releases page:
+
+- **Windows:** portable `.exe` (no install needed) or the NSIS installer
+- **macOS:** `.dmg` or `.zip`
+- **Linux:** `.AppImage` or `.deb`
+
+These are the same artifacts produced locally by `npm run dist` — see **Building the Client** below to build them yourself.
+
+**Option C: build from source** — see **Quick Start** below for the full walkthrough.
+
+### Installing the server
+
+Three ways to get the server running, in order of how much they manage for you:
+
+**Option A: Docker (recommended for self-hosting)**
+
+```bash
+cp .env.example .env    # fill in real secrets first
+docker compose up --build
+docker compose exec api python seed_challenges.py
+```
+
+Runs the API and the sandboxed target-website service as two containers sharing one database — see `docker-compose.yml` at the repo root. This is the only method here that doesn't require Python installed on your machine at all (just Docker).
+
+**Option B: pip (once published)**
+
+```bash
+pip install openctf-server
+
+export SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+export JWT_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+export FLAG_PEPPER=$(python -c "import secrets; print(secrets.token_hex(32))")
+export TARGET_ACCESS_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))")
+export ADMIN_PASSWORD=set-a-real-password
+
+openctf-server            # main API on :5000
+openctf-server-target     # sandboxed target-website service on :5001 (separate terminal)
+openctf-server-seed       # load the starter challenges (one-off)
+```
+
+> **Not published yet.** Intended command once [pypi.org/project/openctf-server](https://pypi.org/project/openctf-server/) exists. See `server/pyproject.toml`.
+
+**Option C: npm (bundled Python source, once published)**
+
+```bash
+npm install -g openctf-server
+openctf-server              # main API
+openctf-server --target     # sandboxed target-website service (separate terminal)
+openctf-server --seed       # load the starter challenges
+```
+
+> **Not published yet.** This package bundles the server's Python source with a small Node launcher — npm still can't install a Python runtime for you, so Python 3.10+ needs to already be on the machine. Installing tries to `pip install` the server's dependencies automatically (see `server/bin/postinstall.js`); if that fails silently (no pip found, etc.) it prints the manual command to run instead. Prefer Option A or B over this one where you can — they're both more standard for their respective ecosystems.
+
+**Option D: build from source** — see **Quick Start** below.
+
 ## Quick Start
 
 ### 1. Configure and start the server
@@ -262,6 +330,35 @@ Before a session:
 - There is no built-in HTTPS termination; use a reverse proxy with a trusted certificate.
 - Challenge migrations are limited; use Flask-Migrate/Alembic for databases that must be preserved.
 - AI challenge behavior depends on the availability, model, and configuration of the local Ollama service.
+
+## Publishing
+
+Reference commands for maintainers, once you've replaced the placeholder `OWNER/OpenCTF` repo URLs in `client/package.json`, `server/pyproject.toml`, `server/package.json`, and `server/PACKAGE_README.md`.
+
+**Client to npm** (`openctf`):
+
+```bash
+cd client
+npm publish
+```
+
+**Server to PyPI** (`openctf-server`):
+
+```bash
+cd server
+python -m pip install --upgrade build twine
+python -m build
+twine upload dist/*
+```
+
+**Server to npm** (`openctf-server`, bundled Python source):
+
+```bash
+cd server
+npm publish
+```
+
+Bump the version in all three manifests (`client/package.json`, `server/pyproject.toml`, `server/package.json`) together when cutting a release so the three packages stay in sync with each other.
 
 ## License
 
