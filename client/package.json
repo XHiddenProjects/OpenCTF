@@ -1,11 +1,11 @@
 {
   "name": "openctf",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Desktop client for the lab CTF platform",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win --mac --linux",
+    "dist": "electron-builder --win --linux --mac",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
     "dist:linux": "electron-builder --linux"

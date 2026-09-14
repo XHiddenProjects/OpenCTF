@@ -114,7 +114,6 @@ openctf-server-target     # sandboxed target-website service on :5001 (separate 
 openctf-server-seed       # load the starter challenges (one-off)
 ```
 
-> **Not published yet.** Intended command once [pypi.org/project/openctf-server](https://pypi.org/project/openctf-server/) exists. See `server/pyproject.toml`.
 
 **Option C: npm (bundled Python source, once published)**
 
@@ -124,8 +123,6 @@ openctf-server              # main API
 openctf-server --target     # sandboxed target-website service (separate terminal)
 openctf-server --seed       # load the starter challenges
 ```
-
-> **Not published yet.** This package bundles the server's Python source with a small Node launcher — npm still can't install a Python runtime for you, so Python 3.10+ needs to already be on the machine. Installing tries to `pip install` the server's dependencies automatically (see `server/bin/postinstall.js`); if that fails silently (no pip found, etc.) it prints the manual command to run instead. Prefer Option A or B over this one where you can — they're both more standard for their respective ecosystems.
 
 **Option D: build from source** — see **Quick Start** below.
 
