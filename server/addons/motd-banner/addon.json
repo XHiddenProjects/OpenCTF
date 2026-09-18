@@ -1,0 +1,15 @@
+{
+  "id": "motd-banner",
+  "name": "MOTD Banner",
+  "version": "1.1.0",
+  "author": "OpenCTF",
+  "description": "Shows a dismissible message-of-the-day banner at the top of the app. Message and color are configurable from the gear button.",
+  "entry": "addon.js",
+  "core": ">=1.0.0",
+  "configurable": true,
+  "config_entry": "config.js",
+  "default_config": {
+    "message": "Welcome to OpenCTF! Check the Scoreboard tab to see how your team is doing.",
+    "color": "#e8a33d"
+  }
+}

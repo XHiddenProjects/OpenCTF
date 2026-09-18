@@ -1,0 +1,15 @@
+{
+  "id": "confetti-solve",
+  "name": "Confetti on Solve",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "A short burst of confetti over the screen whenever a flag is submitted correctly. Particle count and colors are configurable.",
+  "entry": "addon.js",
+  "core": ">=1.0.0",
+  "configurable": true,
+  "config_entry": "config.js",
+  "default_config": {
+    "particle_count": 120,
+    "colors": "#e8a33d,#4fae7a,#b98af5,#5fb4e8"
+  }
+}

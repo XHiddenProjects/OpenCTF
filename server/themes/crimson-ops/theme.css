@@ -1,0 +1,19 @@
+/*
+ * crimson-ops theme
+ *
+ * High-contrast near-black background with a red accent. Same variable
+ * set as every other theme; see docs/ADDON_DEVELOPMENT.md for the full
+ * reference.
+ */
+:root {
+  --bg: #08090b;
+  --bg-raised: #121316;
+  --bg-card: #17181c;
+  --border: #2a2b30;
+  --text: #f0f0f0;
+  --text-dim: #8f9095;
+  --accent: #e8434f;
+  --accent-dim: #a82c36;
+  --ok: #4fae7a;
+  --err: #ff5c66;
+}

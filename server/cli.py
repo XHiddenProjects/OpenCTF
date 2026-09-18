@@ -24,7 +24,9 @@ def main():
     debug = os.environ.get("FLASK_DEBUG", "").strip().lower() in ("1", "true", "yes")
     print(f"OpenCTF API starting on http://0.0.0.0:{port}")
     print("This does not start the sandboxed target-website service - run `openctf-server-target` separately.")
-    app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False)
+    # threaded=True so the long-lived /api/events (SSE) connection each
+    # client keeps open doesn't block ordinary requests behind it.
+    app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False, threaded=True)
 
 
 def target():

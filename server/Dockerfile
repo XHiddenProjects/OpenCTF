@@ -16,6 +16,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 COPY app.py target_app.py seed_challenges.py ./
+COPY addons ./addons
+COPY themes ./themes
 
 # Both services write to / read from the same SQLite file by default - see
 # the `ctf-data` volume in docker-compose.yml.

@@ -1,0 +1,8 @@
+{
+  "id": "forest-dawn",
+  "name": "Forest Dawn",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "A light, warm green/cream palette - a daytime alternative to the default dark theme.",
+  "entry": "theme.css"
+}

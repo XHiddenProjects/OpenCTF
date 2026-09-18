@@ -1,0 +1,18 @@
+{
+  "id": "certifications",
+  "name": "Certifications",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "Issue printable, verifiable completion certificates to players - adds its own Certifications tab and view. Branding (org name/logo/signature/accent color) is configurable from the gear button; the platform's own backend (server/app.py) stores and verifies certificates.",
+  "entry": "addon.js",
+  "core": ">=1.0.0",
+  "configurable": true,
+  "config_entry": "config.js",
+  "default_config": {
+    "org_name": "OpenCTF",
+    "org_logo_url": "",
+    "signer_name": "",
+    "signer_title": "",
+    "accent_color": "#e8a33d"
+  }
+}

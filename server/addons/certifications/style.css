@@ -1,0 +1,243 @@
+/* Certifications addon - view chrome, certificate style variants, print
+   isolation. Loaded once via <link> by addon.js. Uses the host app's own
+   CSS variables (--bg, --text, --accent, etc.) for everything *except*
+   the certificate card itself, which is deliberately theme-independent
+   (a certificate reads on white paper, not in whatever dark theme happens
+   to be active) - its colors come from --cert-accent, set inline per
+   render from the admin-configured accent_color. */
+
+.cert-subtabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 20px;
+}
+.cert-subtab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  padding: 10px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.cert-subtab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+.cert-subtab-btn:hover { color: var(--text); }
+.cert-subtab.hidden { display: none; }
+
+.cert-list { display: flex; flex-direction: column; gap: 10px; max-width: 780px; }
+.cert-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+.cert-row-info { flex: 1; min-width: 0; }
+.cert-row-title { font-weight: 600; font-size: 14px; }
+.cert-row-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.cert-row-meta code { font-family: "IBM Plex Mono", monospace; }
+.cert-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 8px;
+}
+.cert-tag.valid { color: var(--ok); border: 1px solid var(--ok); }
+.cert-tag.expired { color: var(--err); border: 1px solid var(--err); }
+.cert-row-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.cert-empty { color: var(--text-dim); font-size: 13px; }
+
+.cert-verify-form { display: flex; gap: 10px; max-width: 480px; margin-bottom: 20px; }
+.cert-verify-form input { flex: 1; font-family: "IBM Plex Mono", monospace; text-transform: uppercase; }
+.cert-verify-result { max-width: 480px; }
+.cert-verify-result.not-found { color: var(--err); font-size: 13px; }
+
+.cert-manage-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  max-width: 780px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  margin-bottom: 24px;
+}
+.cert-manage-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-dim); }
+.cert-manage-form label.span-2 { grid-column: 1 / -1; }
+.cert-manage-form-actions { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; }
+
+.cert-section-heading { font-size: 13px; font-weight: 600; margin: 0 0 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* --- Certificate preview overlay (also used for print) --- */
+.cert-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.cert-preview-overlay.hidden { display: none; }
+.cert-preview-chrome {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  display: flex;
+  gap: 10px;
+}
+.cert-preview-scroll { max-height: 100%; overflow: auto; padding: 8px; }
+
+/* --- The certificate itself: intentionally not theme-aware --- */
+.cert-card {
+  width: 760px;
+  max-width: 100%;
+  background: #fdfcf8;
+  color: #1c1c1c;
+  padding: 48px 56px;
+  box-sizing: border-box;
+  font-family: "Georgia", "IBM Plex Sans", serif;
+  position: relative;
+}
+.cert-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+.cert-logo { height: 36px; width: auto; }
+.cert-org-name { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #33322c; }
+.cert-body { text-align: center; padding: 10px 0 24px; }
+.cert-kicker { font-size: 12px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--cert-accent, #b8860b); margin-bottom: 10px; }
+.cert-title { font-size: 30px; margin: 0 0 22px; }
+.cert-presented-to { font-size: 12px; color: #6b6a63; margin-bottom: 6px; }
+.cert-recipient { font-size: 26px; font-weight: 700; margin-bottom: 18px; border-bottom: 1px solid #d8d5c8; display: inline-block; padding: 0 20px 8px; }
+.cert-desc { font-size: 13px; color: #4a4a43; max-width: 560px; margin: 0 auto; line-height: 1.6; }
+.cert-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; font-size: 11px; color: #55544d; }
+.cert-dates { text-align: left; }
+.cert-dates div + div { margin-top: 2px; }
+.cert-signature { text-align: right; }
+.cert-signer-name { font-size: 13px; font-weight: 700; border-top: 1px solid #33322c; padding-top: 4px; }
+.cert-signer-title { color: #6b6a63; }
+.cert-expired-tag { color: #b03434; font-weight: 700; margin-left: 4px; }
+.cert-authenticity {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px dashed #d8d5c8;
+  font-size: 10px;
+  color: #8a897f;
+  text-align: center;
+}
+.cert-authenticity code { font-family: "IBM Plex Mono", monospace; }
+
+/* classic - centered double rule, navy/gold */
+.cert-style-classic { border: 3px double #1a2a4a; }
+.cert-style-classic .cert-kicker { color: var(--cert-accent, #b8860b); }
+.cert-style-classic .cert-title { color: #1a2a4a; }
+
+/* modern - clean left-aligned accent bar, sans-serif */
+.cert-style-modern { border: 1px solid #ddd; border-left: 8px solid var(--cert-accent, #2e5aac); font-family: "IBM Plex Sans", sans-serif; }
+.cert-style-modern .cert-card-header { justify-content: flex-start; }
+.cert-style-modern .cert-body { text-align: left; }
+.cert-style-modern .cert-recipient { display: block; border-bottom: none; padding: 0; }
+.cert-style-modern .cert-desc { margin: 0; }
+
+/* gold - ornate accent border/corners */
+.cert-style-gold {
+  border: 2px solid var(--cert-accent, #b8860b);
+  box-shadow: inset 0 0 0 6px #fff, inset 0 0 0 8px var(--cert-accent, #b8860b);
+}
+.cert-style-gold .cert-title { color: var(--cert-accent, #b8860b); }
+.cert-style-gold .cert-recipient { border-bottom: 2px solid var(--cert-accent, #b8860b); }
+
+/* minimal - thin border, small type, no flourish */
+.cert-style-minimal { border: 1px solid #ccc; padding: 36px 40px; font-family: "IBM Plex Sans", sans-serif; }
+.cert-style-minimal .cert-kicker { display: none; }
+.cert-style-minimal .cert-title { font-size: 22px; }
+.cert-style-minimal .cert-recipient { font-size: 20px; }
+
+/* royal - deep purple/gold foil, ornate corner flourishes */
+.cert-style-royal {
+  background: #fbf9f4;
+  border: 2px solid #3b2360;
+  box-shadow: inset 0 0 0 5px #fbf9f4, inset 0 0 0 6px var(--cert-accent, #b8860b);
+  position: relative;
+}
+.cert-style-royal::before, .cert-style-royal::after,
+.cert-style-royal .cert-corner-tl, .cert-style-royal .cert-corner-br {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--cert-accent, #b8860b);
+}
+.cert-style-royal::before { top: 14px; left: 14px; border-right: none; border-bottom: none; }
+.cert-style-royal::after { bottom: 14px; right: 14px; border-left: none; border-top: none; }
+.cert-style-royal .cert-kicker { color: var(--cert-accent, #b8860b); letter-spacing: 0.25em; }
+.cert-style-royal .cert-title { color: #3b2360; font-variant: small-caps; }
+.cert-style-royal .cert-recipient { color: #3b2360; border-bottom: 2px solid var(--cert-accent, #b8860b); }
+
+/* cyber - dark, neon accent, monospace, faint grid - a nod to the
+   platform this is running on rather than a traditional paper look */
+.cert-style-cyber {
+  background: #0a0d14;
+  color: #d7e6ff;
+  border: 1px solid var(--cert-accent, #2ee6a6);
+  box-shadow: 0 0 0 1px rgba(46, 230, 166, 0.15), 0 0 26px -4px var(--cert-accent, #2ee6a6);
+  font-family: "IBM Plex Mono", monospace;
+  background-image:
+    linear-gradient(rgba(46, 230, 166, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(46, 230, 166, 0.06) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+.cert-style-cyber .cert-org-name { color: #d7e6ff; }
+.cert-style-cyber .cert-kicker { color: var(--cert-accent, #2ee6a6); }
+.cert-style-cyber .cert-title { color: #f2f6ff; }
+.cert-style-cyber .cert-presented-to { color: #8fa3c4; }
+.cert-style-cyber .cert-recipient { color: var(--cert-accent, #2ee6a6); border-bottom-color: rgba(46, 230, 166, 0.4); }
+.cert-style-cyber .cert-desc { color: #a9b8d4; }
+.cert-style-cyber .cert-footer { color: #8fa3c4; }
+.cert-style-cyber .cert-signer-name { color: #d7e6ff; border-top-color: #33415c; }
+.cert-style-cyber .cert-signer-title { color: #8fa3c4; }
+.cert-style-cyber .cert-authenticity { color: #6d7fa3; border-top-color: #232c40; }
+.cert-style-cyber .cert-expired-tag { color: #ff5c66; }
+
+/* emerald - deep green double rule, botanical corner accents */
+.cert-style-emerald { border: 3px double #1f5c42; }
+.cert-style-emerald .cert-kicker { color: var(--cert-accent, #1f8a5a); }
+.cert-style-emerald .cert-title { color: #1f5c42; }
+.cert-style-emerald .cert-recipient { border-bottom-color: #1f8a5a; }
+.cert-style-emerald .cert-card-header::after {
+  content: "";
+  display: block;
+  height: 2px;
+  margin-top: 10px;
+  background: linear-gradient(90deg, transparent, var(--cert-accent, #1f8a5a), transparent);
+}
+
+/* sunburst - warm radiating gradient behind the header, festive/bold */
+.cert-style-sunburst {
+  border: 1px solid #e6c46a;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--cert-accent, #e8a33d) 18%, transparent) 0%, transparent 60%),
+    #fdfcf8;
+}
+.cert-style-sunburst .cert-kicker { color: var(--cert-accent, #e8a33d); }
+.cert-style-sunburst .cert-title { color: #7a4b12; font-size: 32px; }
+.cert-style-sunburst .cert-recipient { border-bottom-color: var(--cert-accent, #e8a33d); }
+
+@media print {
+  body * { visibility: hidden; }
+  .cert-print-area, .cert-print-area * { visibility: visible; }
+  .cert-print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  .cert-preview-chrome { display: none !important; }
+}

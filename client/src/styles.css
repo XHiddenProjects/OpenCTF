@@ -79,16 +79,26 @@ body {
 .auth-form { display: flex; flex-direction: column; gap: 14px; }
 .auth-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-dim); }
 
-input[type="text"], input[type="password"] {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 9px 10px;
-  color: var(--text);
-  font-size: 13px;
-  font-family: "IBM Plex Mono", monospace;
-}
-input[type="number"], select {
+/* ---------------------------------------------------------------------
+   Global form control styling
+   Electron ships its own up-to-date Chromium, so every control below is
+   hand-painted with `appearance: none` + pseudo-elements instead of
+   compromising for older/other browsers - nothing here falls back to an
+   OS-native checkbox, radio, slider, color swatch, or file-picker button.
+   --------------------------------------------------------------------- */
+
+input[type="text"],
+input[type="password"],
+input[type="search"],
+input[type="email"],
+input[type="url"],
+input[type="tel"],
+input[type="number"],
+input[type="date"],
+textarea,
+select {
+  appearance: none;
+  -webkit-appearance: none;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -97,8 +107,152 @@ input[type="number"], select {
   font-size: 13px;
   font-family: "IBM Plex Sans", sans-serif;
 }
-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+input[type="text"],
+input[type="password"],
+input[type="search"],
+input[type="number"] { font-family: "IBM Plex Mono", monospace; }
+textarea { resize: vertical; }
+textarea.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+
+input[type="text"]:focus-visible,
+input[type="password"]:focus-visible,
+input[type="search"]:focus-visible,
+input[type="email"]:focus-visible,
+input[type="url"]:focus-visible,
+input[type="tel"]:focus-visible,
+input[type="number"]:focus-visible,
+input[type="date"]:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+/* select: a single-path chevron (inline SVG, not two separately
+   positioned gradient triangles - those could drift apart into a visibly
+   split arrow depending on exact rendering) in place of the OS-native one */
+select {
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%238b93a7' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
+  cursor: pointer;
+}
+
+/* checkbox / radio - the app's toggle-switch component (see below) covers
+   on/off settings; this is the plain fallback for anywhere a real
+   checkbox or radio input is used instead (including in addon-authored
+   config screens - see docs/ADDON_DEVELOPMENT.md) */
+input[type="checkbox"],
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  position: relative;
+  cursor: pointer;
+  vertical-align: middle;
+}
+input[type="checkbox"] { border-radius: 4px; }
+input[type="radio"] { border-radius: 50%; }
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid #1a1300;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+input[type="radio"]:checked::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #1a1300;
+}
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* range slider */
+input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--accent-dim);
+  cursor: pointer;
+}
+input[type="range"]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* color picker - strip the browser's own swatch chrome down to just the
+   color itself, inside the app's normal field border */
+input[type="color"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 44px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  padding: 3px;
+  cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch { border: none; border-radius: calc(var(--radius) - 2px); }
+input[type="color"]:focus-visible { outline: 1px solid var(--accent); }
+
+/* file picker fallback for anywhere a bare <input type="file"> shows up
+   without the custom drag-and-drop zone below (see .upload-dropzone) */
+input[type="file"] { color: var(--text-dim); font-size: 12px; }
+input[type="file"]::file-selector-button {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 7px 12px;
+  margin-right: 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button:hover { border-color: var(--accent-dim); color: var(--text); }
 
 .password-row { position: relative; display: flex; }
 .password-row input[type="password"], .password-row input[type="text"] {
@@ -184,10 +338,43 @@ select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 .sidebar-spacer { flex: 1; }
 .who { padding: 0 16px; display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
 .who span { font-size: 12px; }
+
+/* Sidebar extension point for the core addon's live-updates status - see
+   #sidebar-status-slot in index.html. Empty by default so it takes up no
+   space when nothing has populated it (addon disabled, or still loading). */
+.sidebar-status-slot { padding: 0 16px; margin-bottom: 6px; }
+.sidebar-status-slot:empty { display: none; }
+.sidebar-live-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.sidebar-live-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: background 0.2s ease;
+}
+.sidebar-live-dot.connected { background: var(--ok); }
+.sidebar-live-dot.disconnected { background: var(--err); }
 #who-team { color: var(--text); font-weight: 600; }
 .who-user { color: var(--text-dim); }
 
 .content { flex: 1; padding: 28px 32px; overflow-y: auto; }
+/* window.OpenCTF.registerView({location: "header"/"footer"}) slots - see
+   #addon-header-slot/#addon-footer-slot in index.html. Row layout so
+   multiple addons can each contribute their own piece side by side;
+   collapses to no space at all when nothing (or nothing currently
+   visible - a disabled addon's entry is hidden, not removed) is inside. */
+.addon-chrome-slot { display: flex; flex-wrap: wrap; gap: 12px; }
+.addon-chrome-slot:not(:has(> :not(.hidden))) { display: none; }
+.addon-header-slot { margin-bottom: 20px; }
+.addon-footer-slot { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+.addon-chrome-item { min-width: 0; }
 .view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .view-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
 .view-header-actions { display: flex; align-items: center; gap: 10px; }
@@ -333,16 +520,7 @@ details summary { cursor: pointer; color: var(--text-dim); font-size: 12px; marg
 }
 .settings-card h3 { margin: 0 0 4px; font-size: 14px; }
 .settings-card label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-dim); }
-.settings-card textarea, textarea {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 9px 10px;
-  color: var(--text);
-  font-size: 13px;
-  font-family: "IBM Plex Sans", sans-serif;
-  resize: vertical;
-}
+.settings-card textarea { resize: vertical; }
 textarea.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
 .form-result { font-size: 12px; margin: 0; min-height: 14px; }
 .form-result.ok { color: var(--ok); }
@@ -459,6 +637,148 @@ textarea.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
 .toggle-switch input:checked + .toggle-track { background: rgba(79, 174, 122, 0.25); border-color: var(--ok); }
 .toggle-switch input:checked + .toggle-track::after { transform: translateX(16px); background: var(--ok); }
 .toggle-switch input:focus-visible + .toggle-track { box-shadow: 0 0 0 2px rgba(79, 174, 122, 0.35); }
+
+/* ---- Admin: Addons & Themes tab ---- */
+.extensions-subhead { font-size: 14px; margin: 18px 0 4px; }
+.extensions-subhead:first-of-type { margin-top: 0; }
+.extensions-list { display: flex; flex-direction: column; gap: 8px; max-width: 720px; margin-bottom: 8px; }
+.extension-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.extension-card .extension-info { min-width: 0; }
+.extension-card .extension-title { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.extension-card .extension-version {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.extension-card .extension-author { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+.extension-card .extension-desc { color: var(--text-dim); font-size: 12px; margin-top: 6px; line-height: 1.4; }
+.extension-card .toggle-row { flex: 0 0 auto; font-size: 12px !important; }
+.extensions-empty { color: var(--text-dim); font-size: 13px; }
+.extension-compat-warning {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--err);
+}
+.extension-core-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.extension-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.icon-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: var(--radius);
+  width: 26px;
+  height: 26px;
+  line-height: 1;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-btn:hover { color: var(--text); border-color: var(--accent-dim); }
+.icon-btn-danger:hover { color: var(--err); border-color: var(--err); }
+
+/* Theme dropdown + save (replaces a per-theme radio list) */
+.theme-picker { display: flex; align-items: center; gap: 10px; max-width: 720px; margin-bottom: 8px; }
+.theme-picker select { flex: 1; min-width: 0; }
+.theme-meta-card { max-width: 720px; margin-bottom: 8px; display: block; }
+.theme-meta-card:empty { display: none; }
+
+/* Custom drag-and-drop upload zone (addon/theme .zip installer) - the
+   actual <input type="file"> sits on top, fully transparent, so native
+   click-to-browse and native file drag-and-drop both keep working; this
+   just repaints everything the person actually sees. */
+.upload-dropzone {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 720px;
+  margin: 4px 0 10px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.upload-dropzone:hover,
+.upload-dropzone:focus-within { border-color: var(--accent-dim); }
+.upload-dropzone.drag-active { border-color: var(--accent); background: rgba(232, 163, 61, 0.08); }
+.upload-dropzone-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+.upload-dropzone-icon {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.upload-dropzone-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.upload-dropzone-text strong { font-size: 13px; font-weight: 600; }
+.upload-dropzone-text span { font-size: 11px; color: var(--text-dim); }
+.upload-dropzone-file {
+  margin-left: auto;
+  flex: 0 1 auto;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--bg);
+  border: 1px solid var(--accent-dim);
+  border-radius: 999px;
+  padding: 3px 10px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-dropzone-file.hidden { display: none; }
+
+.upload-actions { display: flex; align-items: center; gap: 10px; max-width: 720px; margin: 0 0 18px; }
+.upload-actions .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+#addon-config-body label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+#addon-config-body input, #addon-config-body textarea { width: 100%; }
+#addon-config-body .toggle-row { flex-direction: row !important; }
 
 .form-actions { display: flex; gap: 10px; align-items: center; }
 .builder-panel { border: 1px solid var(--border); background: rgba(79, 174, 122, 0.05); padding: 14px; border-radius: var(--radius); }

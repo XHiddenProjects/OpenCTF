@@ -76,11 +76,23 @@
           <span id="who-team">—</span>
           <span id="who-user" class="who-user">—</span>
         </div>
+        <!-- Populated by the core addon (server/addons/core/addon.js) with
+             a small "live updates" status row - an extension point so it
+             doesn't need to float a fixed-position element over the rest
+             of the sidebar. Empty/hidden if that addon is disabled. -->
+        <div id="sidebar-status-slot" class="sidebar-status-slot"></div>
         <button id="open-settings-2" class="link-btn small">Server settings</button>
         <button id="logout" class="link-btn small">Sign out</button>
       </nav>
 
       <main class="content">
+        <!-- Global chrome slots for window.OpenCTF.registerView({location:
+             "header"/"footer"}) - always visible regardless of which view
+             is active, unlike the .view containers below. Multiple addons
+             can each add their own small area here; empty/collapsed when
+             nothing has populated them. -->
+        <div id="addon-header-slot" class="addon-chrome-slot addon-header-slot"></div>
+
         <div id="view-challenges" class="view">
           <header class="view-header">
             <h2>Challenges</h2>
@@ -163,6 +175,7 @@
             <button class="admin-tab-btn active" data-admin-tab="challenges">Challenges</button>
             <button class="admin-tab-btn" data-admin-tab="users">Users</button>
             <button class="admin-tab-btn" data-admin-tab="teams">Teams</button>
+            <button class="admin-tab-btn" data-admin-tab="extensions">Addons &amp; Themes</button>
           </div>
 
           <div id="admin-tab-challenges" class="admin-tab">
@@ -200,7 +213,64 @@
               <tbody id="admin-teams-body"></tbody>
             </table>
           </div>
+
+          <div id="admin-tab-extensions" class="admin-tab hidden">
+            <p class="field-note">
+              Addons and themes are folders on the server (<code>server/addons/</code> and
+              <code>server/themes/</code>) - a developer adds one, or you upload a .zip below, and
+              it shows up here for an admin to turn on. Changes apply to every player
+              <strong>immediately</strong> - no refresh needed. See
+              <code>docs/ADDON_DEVELOPMENT.md</code> for how to build your own.
+            </p>
+
+            <h3 class="extensions-subhead">Theme</h3>
+            <p class="field-note">One active theme applies to everyone, including the login screen.</p>
+            <div class="theme-picker">
+              <select id="theme-select"></select>
+              <button type="button" class="btn-primary small" id="theme-save-btn">Save</button>
+              <button type="button" class="icon-btn icon-btn-danger" id="theme-delete-btn" title="Delete this theme">&#128465;</button>
+              <span class="form-result" id="theme-save-result"></span>
+            </div>
+            <div id="theme-meta" class="extension-card theme-meta-card"></div>
+
+            <div class="upload-dropzone" id="theme-upload-zone">
+              <input type="file" id="theme-upload-input" accept=".zip" class="upload-dropzone-input" aria-label="Upload theme zip file" />
+              <span class="upload-dropzone-icon">&#8679;</span>
+              <span class="upload-dropzone-text">
+                <strong>Upload theme (.zip)</strong>
+                <span>Drag a file here, or click to browse</span>
+              </span>
+              <span class="upload-dropzone-file hidden" id="theme-upload-filename"></span>
+            </div>
+            <div class="upload-actions">
+              <button type="button" class="btn-primary small" id="theme-upload-btn" disabled>Install</button>
+              <span class="form-result" id="theme-upload-result"></span>
+            </div>
+
+            <h3 class="extensions-subhead">Addons</h3>
+            <p class="field-note">
+              Any number of addons can be enabled at once. The gear icon opens an addon's own
+              configuration screen, when it has one.
+            </p>
+            <div id="admin-addons-list" class="extensions-list"></div>
+
+            <div class="upload-dropzone" id="addon-upload-zone">
+              <input type="file" id="addon-upload-input" accept=".zip" class="upload-dropzone-input" aria-label="Upload addon zip file" />
+              <span class="upload-dropzone-icon">&#8679;</span>
+              <span class="upload-dropzone-text">
+                <strong>Upload addon (.zip)</strong>
+                <span>Drag a file here, or click to browse</span>
+              </span>
+              <span class="upload-dropzone-file hidden" id="addon-upload-filename"></span>
+            </div>
+            <div class="upload-actions">
+              <button type="button" class="btn-primary small" id="addon-upload-btn" disabled>Install</button>
+              <span class="form-result" id="addon-upload-result"></span>
+            </div>
+          </div>
         </div>
+
+        <div id="addon-footer-slot" class="addon-chrome-slot addon-footer-slot"></div>
       </main>
     </section>
 
@@ -424,6 +494,17 @@
           </div>
           <p class="form-result" id="challenge-form-result"></p>
         </form>
+      </div>
+    </div>
+
+    <!-- Addon configuration modal (content built by that addon's own
+         config script - see openAddonConfigModal() in renderer.js and
+         docs/ADDON_DEVELOPMENT.md) -->
+    <div id="modal-addon-config" class="modal hidden">
+      <div class="modal-card">
+        <button class="modal-close" id="addon-config-close">&times;</button>
+        <h3 id="addon-config-title">Configure addon</h3>
+        <div id="addon-config-body"></div>
       </div>
     </div>
 

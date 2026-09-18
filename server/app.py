@@ -23,6 +23,12 @@ import hashlib
 import hmac
 import json
 import atexit
+import queue
+import threading
+import stat
+import zipfile
+import shutil
+import tempfile
 import subprocess
 import sys
 import secrets
@@ -30,13 +36,14 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory, abort, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager, create_access_token, jwt_required, get_jwt_identity
 )
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from sqlalchemy.exc import IntegrityError
 
 # ---------------------------------------------------------------------------
@@ -55,6 +62,11 @@ app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=12)
 app.config["TARGET_SERVER_URL"] = os.environ.get("TARGET_SERVER_URL", "http://localhost:5001")
 app.config["OLLAMA_URL"] = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 app.config["OLLAMA_MODEL"] = os.environ.get("OLLAMA_MODEL", "llama3.2")
+# The addon/theme uploader (see admin_upload_addon/admin_upload_theme) is
+# the only file-upload endpoint in this app - a generous but bounded cap
+# keeps a mistaken or malicious multi-hundred-MB upload from tying up disk
+# and memory on a lab host.
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
 CORS(app, origins=os.environ.get("CORS_ORIGINS", "*"))
 db = SQLAlchemy(app)
@@ -70,6 +82,152 @@ TARGET_PROCESS = None
 
 CHALLENGE_TYPES = ("standard", "terminal", "web", "ai", "quiz")
 CHALLENGE_DIFFICULTIES = ("easy", "medium", "hard", "expert")
+
+# ---------------------------------------------------------------------------
+# Addons & themes
+#
+# Both are plain folders discovered on disk next to app.py - nothing is
+# installed into a database. An admin only chooses which *discovered*
+# addons/theme are turned on for everyone; adding a new one is a developer
+# task (drop a folder in place, see docs/ADDON_DEVELOPMENT.md). This keeps
+# "install" out of scope for a lab platform while still letting a site
+# operator manage what's active without touching code.
+# ---------------------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ADDONS_DIR = os.environ.get("ADDONS_DIR", os.path.join(BASE_DIR, "addons"))
+THEMES_DIR = os.environ.get("THEMES_DIR", os.path.join(BASE_DIR, "themes"))
+
+# The platform's own version - single source of truth for two things:
+#   1. The bundled "core" addon (server/addons/core/) always reports this
+#      exact version, regardless of what its own addon.json says - see
+#      discover_addons() below. It ships with the platform, so it can
+#      never be out of step with it.
+#   2. Every *other* addon must declare a "core" field in its manifest - a
+#      version requirement like ">=1.0.0" - checked against this by
+#      check_core_version_constraint(). An addon whose requirement isn't
+#      met by the running version is treated as disabled, automatically,
+#      everywhere (see enabled_addon_ids()) - no admin action needed.
+# Read from server/__init__.py's own __version__ (the same constant that
+# makes this directory installable as the `openctf_server` PyPI package -
+# see its docstring) rather than duplicating the number here, so there's
+# exactly one place to bump on release alongside client/package.json and
+# CHANGELOG.md - see "Versioning" in docs/ADDON_DEVELOPMENT.md.
+def _load_openctf_version():
+    try:
+        with open(os.path.join(BASE_DIR, "__init__.py"), "r", encoding="utf-8") as fh:
+            match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', fh.read())
+        if match:
+            return match.group(1)
+    except OSError:
+        pass
+    return "0.0.0"  # __init__.py missing/unreadable - fail closed, not silently "compatible with everything"
+
+
+OPENCTF_VERSION = _load_openctf_version()
+
+
+def _parse_semver(value):
+    """Best-effort "major.minor.patch" parse -> (int, int, int). Anything
+    that doesn't parse as an integer component is treated as 0, and a
+    short version like "1.2" is padded with trailing zeros, so "1.2" and
+    "1.2.0" compare equal."""
+    parts = []
+    for piece in str(value).strip().split("."):
+        try:
+            parts.append(int(piece))
+        except ValueError:
+            parts.append(0)
+    parts = (parts + [0, 0, 0])[:3]
+    return tuple(parts)
+
+
+# Longest operator first, since e.g. ">=1.0.0".startswith(">") is also
+# true - a shorter match earlier in this list would silently swallow the
+# "=" and misparse the requirement.
+_VERSION_CONSTRAINT_OPERATORS = [
+    ("==", lambda running, target: running == target),
+    (">=", lambda running, target: running >= target),
+    ("<=", lambda running, target: running <= target),
+    ("=<", lambda running, target: running <= target),  # tolerate the reversed-order typo
+    (">", lambda running, target: running > target),
+    ("<", lambda running, target: running < target),
+]
+
+
+def _core_requirement_is_well_formed(constraint):
+    """Syntax-only check for an addon's manifest "core" field - used at
+    upload time, where we want to require the field exists and parses,
+    without rejecting an addon whose declared range just doesn't happen to
+    include the version running right now (it should still be installable,
+    just left disabled until the server is upgraded into its range - see
+    enabled_addon_ids())."""
+    if not constraint or not isinstance(constraint, str):
+        return False
+    constraint = constraint.strip()
+    for op, _compare in _VERSION_CONSTRAINT_OPERATORS:
+        if constraint.startswith(op):
+            target = constraint[len(op):].strip()
+            return bool(re.fullmatch(r"\d+(\.\d+){0,2}", target))
+    return False
+
+
+def check_core_version_constraint(constraint, running_version=None):
+    """Evaluate an addon manifest's required "core" field (e.g. ">=1.0.0",
+    "==1.1.0", "<2.0.0") against the OpenCTF version actually running
+    (OPENCTF_VERSION unless overridden for a test). Returns (ok, reason) -
+    reason is None when ok is True, otherwise a short human-readable
+    explanation suitable for showing an admin directly.
+
+    A missing or unparsable constraint is treated as incompatible on
+    purpose: every addon is required to declare one (see
+    docs/ADDON_DEVELOPMENT.md), so silently treating "not declared" as
+    "compatible with everything" would undermine the whole point of this
+    check.
+    """
+    running_version = running_version or OPENCTF_VERSION
+    if not constraint or not isinstance(constraint, str):
+        return False, 'missing a required "core" version requirement (e.g. ">=1.0.0")'
+    constraint = constraint.strip()
+    for op, compare in _VERSION_CONSTRAINT_OPERATORS:
+        if not constraint.startswith(op):
+            continue
+        target = constraint[len(op):].strip()
+        if not re.fullmatch(r"\d+(\.\d+){0,2}", target):
+            return False, f'malformed "core" version requirement: "{constraint}"'
+        ok = compare(_parse_semver(running_version), _parse_semver(target))
+        if ok:
+            return True, None
+        return False, f'requires OpenCTF {constraint}, this server runs {running_version}'
+    return False, f'malformed "core" version requirement: "{constraint}" (expected e.g. ">=1.0.0")'
+
+# ---------------------------------------------------------------------------
+# Live updates (Server-Sent Events)
+#
+# Every client (including the still-logged-out login screen) keeps one
+# GET /api/events connection open. When an admin changes the active theme,
+# toggles an addon, or saves an addon's config, we push a small JSON event
+# to every open connection so it takes effect immediately - no "refresh to
+# see it" step. This is an in-memory pub/sub, so it only fans out within a
+# single process: fine for the single dev-server process this ships with
+# (`python app.py`), but under a multi-worker WSGI server (e.g. `gunicorn
+# -w 4`) each worker only sees its own subscribers. For that deployment,
+# put a real pub/sub (Redis, etc.) behind broadcast_event() instead.
+# ---------------------------------------------------------------------------
+_event_subscribers = set()
+_event_subscribers_lock = threading.Lock()
+
+
+def broadcast_event(event_type, data):
+    """Push {"type": event_type, "data": data} to every open /api/events
+    connection. Best-effort - a slow/dead subscriber never blocks this."""
+    payload = json.dumps({"type": event_type, "data": data})
+    with _event_subscribers_lock:
+        subscribers = list(_event_subscribers)
+    for q in subscribers:
+        try:
+            q.put_nowait(payload)
+        except queue.Full:
+            pass  # subscriber isn't keeping up; drop rather than block
 
 # ---------------------------------------------------------------------------
 # Models
@@ -202,6 +360,335 @@ class TeamChallengeFlag(db.Model):
     __table_args__ = (
         db.UniqueConstraint("team_id", "challenge_id", name="uq_team_challenge_flag"),
     )
+
+
+class SiteSetting(db.Model):
+    """Tiny key/value store for platform-wide settings such as the active
+    theme and which addons are enabled. Deliberately generic (rather than
+    dedicated columns on some singleton row) so future site-wide settings
+    don't each need their own migration."""
+
+    key = db.Column(db.String(80), primary_key=True)
+    value = db.Column(db.Text, nullable=False)
+
+
+# Valid values for Certification.style - the Certifications addon's own
+# CSS (server/addons/certifications/style.css) has matching, differently
+# themed layouts for each of these. Kept here (not just client-side) so an
+# admin can't POST an arbitrary/unstyled value through the API.
+CERTIFICATION_STYLES = ("classic", "modern", "gold", "minimal", "royal", "cyber", "emerald", "sunburst")
+
+
+class Certification(db.Model):
+    """One issued certificate. Despite the class name this is the
+    *issued instance*, not a reusable template - see the Certifications
+    addon's docs/ADDON_DEVELOPMENT.md entry for why that's the deliberate
+    shape (an admin fills in title/description/style per certificate
+    rather than picking from predefined templates)."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    # Public verification code - short and not sequential/guessable like
+    # `id`, since it's meant to be shared/printed on the certificate
+    # itself for anyone to look up via /api/certifications/verify/<uid>.
+    cert_uid = db.Column(db.String(40), unique=True, nullable=False)
+    title = db.Column(db.String(150), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    style = db.Column(db.String(30), nullable=False, default="classic")
+
+    recipient_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    # The name printed on the certificate. Snapshotted at issue time (from
+    # the linked user's display name, if any) rather than looked up live,
+    # so a later username/display-name change never retroactively rewrites
+    # an already-issued certificate - and so a certificate can still be
+    # issued to someone with no platform account at all.
+    recipient_name = db.Column(db.String(120), nullable=False)
+
+    issued_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=True)  # null = never expires
+    created_by = db.Column(db.String(80), nullable=True)
+
+    recipient = db.relationship("User", foreign_keys=[recipient_user_id])
+
+    def is_expired(self):
+        return bool(self.expires_at and self.expires_at < datetime.utcnow())
+
+    def to_dict(self, include_uid=True):
+        d = {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description or "",
+            "style": self.style,
+            "recipient_name": self.recipient_name,
+            "recipient_username": self.recipient.username if self.recipient else None,
+            "issued_at": self.issued_at.isoformat() if self.issued_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "expired": self.is_expired(),
+            "created_by": self.created_by,
+        }
+        if include_uid:
+            d["cert_uid"] = self.cert_uid
+        return d
+
+
+def generate_cert_uid():
+    """A short, human-copyable verification code - four groups of 4 hex
+    characters (64 bits total), not the row's own sequential `id`."""
+    for _ in range(5):
+        candidate = "-".join(secrets.token_hex(2).upper() for _ in range(4))
+        if not Certification.query.filter_by(cert_uid=candidate).first():
+            return candidate
+    return secrets.token_hex(16).upper()  # astronomically unlikely, but don't loop forever
+
+
+def get_setting(key, default=None):
+    row = SiteSetting.query.get(key)
+    if row is None:
+        return default
+    try:
+        return json.loads(row.value)
+    except (TypeError, ValueError):
+        return default
+
+
+def set_setting(key, value):
+    row = SiteSetting.query.get(key)
+    encoded = json.dumps(value)
+    if row is None:
+        db.session.add(SiteSetting(key=key, value=encoded))
+    else:
+        row.value = encoded
+    db.session.commit()
+
+
+def delete_setting(key):
+    row = SiteSetting.query.get(key)
+    if row is not None:
+        db.session.delete(row)
+        db.session.commit()
+
+
+def _discover_extensions(root_dir, manifest_name, required_fields):
+    """Scan `root_dir` for one-level-deep folders containing a manifest
+    file, and return {id: manifest_dict} for each valid one. `id` is always
+    the folder name, regardless of what (if anything) the manifest claims,
+    so two folders can never collide on identity. Folders that are missing
+    the manifest, aren't valid JSON, or are missing a required field are
+    silently skipped - a broken addon/theme should never take the whole
+    admin panel down, just fail to show up.
+    """
+    found = {}
+    if not os.path.isdir(root_dir):
+        return found
+    for entry in sorted(os.listdir(root_dir)):
+        folder = os.path.join(root_dir, entry)
+        manifest_path = os.path.join(folder, manifest_name)
+        if not os.path.isdir(folder) or not os.path.isfile(manifest_path):
+            continue
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                manifest = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(manifest, dict) or any(f not in manifest for f in required_fields):
+            continue
+        manifest["id"] = entry
+        found[entry] = manifest
+    return found
+
+
+def discover_addons():
+    addons = _discover_extensions(ADDONS_DIR, "addon.json", ("name", "version", "entry"))
+    # The bundled "core" addon is versioned in lockstep with OpenCTF
+    # itself - see the OPENCTF_VERSION comment above - so whatever its own
+    # addon.json happens to say is overridden here rather than trusted.
+    if "core" in addons:
+        addons["core"]["version"] = OPENCTF_VERSION
+    return addons
+
+
+def discover_themes():
+    return _discover_extensions(THEMES_DIR, "theme.json", ("name", "version", "entry"))
+
+
+# ---------------------------------------------------------------------------
+# Addon/theme upload (zip) - see admin_upload_addon / admin_upload_theme
+#
+# Lets an admin install an addon or theme from the admin panel instead of
+# copying a folder onto the server by hand. This doesn't change the trust
+# model described in docs/ADDON_DEVELOPMENT.md - uploading is already an
+# admin-only action, and an admin can already enable arbitrary unsandboxed
+# JS via the existing toggle. What this code guards against is purely
+# filesystem mischief in the zip itself (path traversal, symlinks, zip
+# bombs), not the addon's own behavior once installed.
+# ---------------------------------------------------------------------------
+
+def _safe_extract_zip(zf, target_dir):
+    """Extract every member of `zf` into `target_dir`, refusing anything
+    that would land outside it (zip-slip via `../` or an absolute path) or
+    any symlink (which could otherwise point outside the extraction dir
+    once followed)."""
+    target_dir = os.path.abspath(target_dir)
+    for member in zf.infolist():
+        mode = (member.external_attr >> 16) & 0xFFFF
+        if stat.S_ISLNK(mode):
+            raise ValueError(f"refusing to extract a symlink: {member.filename}")
+        member_path = os.path.abspath(os.path.join(target_dir, member.filename))
+        if member_path != target_dir and not member_path.startswith(target_dir + os.sep):
+            raise ValueError(f"refusing to extract outside the target folder: {member.filename}")
+    zf.extractall(target_dir)
+
+
+def _extension_root(extract_dir, manifest_name):
+    """A valid upload is a zip of just an addon/theme folder's *contents*
+    (manifest at the zip root) or a zip of the folder itself (manifest one
+    level down, inside a single top-level directory). Returns
+    (folder_name_or_None, path_to_the_folder_containing_the_manifest), or
+    (None, None) if neither shape is found."""
+    root_manifest = os.path.join(extract_dir, manifest_name)
+    if os.path.isfile(root_manifest):
+        return None, extract_dir
+    entries = [e for e in os.listdir(extract_dir) if e != "__MACOSX" and not e.startswith(".")]
+    dirs = [e for e in entries if os.path.isdir(os.path.join(extract_dir, e))]
+    if len(dirs) == 1:
+        candidate = os.path.join(extract_dir, dirs[0])
+        if os.path.isfile(os.path.join(candidate, manifest_name)):
+            return dirs[0], candidate
+    return None, None
+
+
+def _handle_extension_upload(root_dir, manifest_name, discover_fn, kind):
+    """Shared body for the addon/theme upload routes below."""
+    err = admin_required()
+    if err:
+        return err
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return jsonify(error="no file uploaded"), 400
+    if not uploaded.filename.lower().endswith(".zip"):
+        return jsonify(error="expected a .zip file"), 400
+
+    with tempfile.TemporaryDirectory() as tmp:
+        zip_path = os.path.join(tmp, "upload.zip")
+        uploaded.save(zip_path)
+        extract_dir = os.path.join(tmp, "extracted")
+        os.makedirs(extract_dir, exist_ok=True)
+
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                # Guard against a zip bomb (a tiny compressed file that
+                # expands to gigabytes) independently of MAX_CONTENT_LENGTH,
+                # which only limits the *compressed* upload size.
+                total_uncompressed = sum(i.file_size for i in zf.infolist())
+                if total_uncompressed > 40 * 1024 * 1024:
+                    return jsonify(error="zip contents are too large"), 400
+                _safe_extract_zip(zf, extract_dir)
+        except zipfile.BadZipFile:
+            return jsonify(error="not a valid zip file"), 400
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+
+        folder_name_hint, manifest_dir = _extension_root(extract_dir, manifest_name)
+        if not manifest_dir:
+            return jsonify(
+                error=f"zip must contain {manifest_name} at its root, or inside a single top-level folder"
+            ), 400
+
+        try:
+            with open(os.path.join(manifest_dir, manifest_name), "r", encoding="utf-8") as fh:
+                manifest = json.load(fh)
+        except (OSError, ValueError):
+            return jsonify(error=f"{manifest_name} is not valid JSON"), 400
+
+        if not isinstance(manifest, dict) or any(f not in manifest for f in ("name", "version", "entry")):
+            return jsonify(error=f"{manifest_name} is missing a required field (name, version, entry)"), 400
+        if kind == "addon" and not _core_requirement_is_well_formed(manifest.get("core")):
+            return jsonify(error='addon.json must declare a "core" version requirement (e.g. ">=1.0.0")'), 400
+
+        if not os.path.isfile(os.path.join(manifest_dir, manifest["entry"])):
+            return jsonify(error=f'declared entry "{manifest["entry"]}" was not found in the zip'), 400
+        config_entry = manifest.get("config_entry")
+        if manifest.get("configurable") and config_entry and not os.path.isfile(os.path.join(manifest_dir, config_entry)):
+            return jsonify(error=f'declared config_entry "{config_entry}" was not found in the zip'), 400
+
+        # The addon/theme id is the stable folder name it's installed
+        # under. Prefer the zip's own top-level folder name (so
+        # re-uploading a zip you built from an existing install updates
+        # that same addon/theme instead of creating a duplicate);
+        # otherwise derive one from the manifest name or the zip's own
+        # filename.
+        raw_id = folder_name_hint or manifest.get("name") or os.path.splitext(uploaded.filename)[0]
+        extension_id = re.sub(r"[^a-z0-9-]+", "-", raw_id.strip().lower()).strip("-")
+        extension_id = secure_filename(extension_id) or "extension"
+
+        existing = discover_fn()
+        if existing.get(extension_id, {}).get("can_disable") is False:
+            return jsonify(error="can't overwrite an addon/theme that's marked can_disable: false"), 400
+
+        dest = os.path.join(root_dir, extension_id)
+        os.makedirs(root_dir, exist_ok=True)
+        if os.path.isdir(dest):
+            shutil.rmtree(dest)
+        shutil.copytree(
+            manifest_dir, dest,
+            ignore=shutil.ignore_patterns("__MACOSX", ".DS_Store", "._*"),
+        )
+
+    broadcast_event(f"{kind}_installed", {"id": extension_id, "name": manifest.get("name", extension_id)})
+    return jsonify(id=extension_id, name=manifest.get("name", extension_id), version=manifest.get("version", "0.0.0"))
+
+
+def enabled_addon_ids():
+    """Effective enabled-addon IDs right now - not just what's stored.
+
+    Filters the stored preference down to addons that still actually exist
+    on disk (a folder can be deleted without a DB migration) AND whose
+    manifest "core" version requirement (e.g. ">=1.0.0") is satisfied by
+    OPENCTF_VERSION - see check_core_version_constraint(). An addon that
+    fails that check is treated as disabled unconditionally, regardless of
+    what's stored: this is the "auto disable if outdated" behavior, and it
+    applies fresh every time this is called, so an addon that becomes
+    compatible again after a server upgrade doesn't need an admin to
+    manually re-enable it.
+
+    Addons whose manifest sets "can_disable": false are always included on
+    top of the stored list (as long as they're still compatible) - they
+    can't be turned off from the admin panel; see admin_toggle_addon.
+    """
+    ids = get_setting("enabled_addons", [])
+    if not isinstance(ids, list):
+        ids = []
+    available = discover_addons()
+
+    def is_compatible(manifest):
+        return check_core_version_constraint(manifest.get("core"))[0]
+
+    enabled = {i for i in ids if i in available and is_compatible(available[i])}
+    for aid, manifest in available.items():
+        if manifest.get("can_disable") is False and is_compatible(manifest):
+            enabled.add(aid)
+    return sorted(enabled)
+
+
+def addon_config_setting_key(addon_id):
+    return f"addon_config:{addon_id}"
+
+
+def addon_config_for(addon_id, manifest):
+    """Merge an addon's declared defaults with whatever an admin has saved,
+    so callers always get a complete config object even before anyone has
+    touched the settings."""
+    merged = dict(manifest.get("default_config") or {})
+    saved = get_setting(addon_config_setting_key(addon_id), {})
+    if isinstance(saved, dict):
+        merged.update(saved)
+    return merged
+
+
+def active_theme_id():
+    theme_id = get_setting("active_theme")
+    if theme_id and theme_id in discover_themes():
+        return theme_id
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -890,8 +1377,342 @@ def scoreboard():
 
 
 # ---------------------------------------------------------------------------
+# Addons & themes - public routes
+#
+# Unauthenticated on purpose: the theme has to apply to the login screen
+# too, and addon scripts need to load before we know whether the visitor
+# will end up logged in. What's served here is entirely controlled by the
+# admin (only enabled addons / the active theme are reachable) - see the
+# admin routes further down for how that gets set.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/site-config")
+def site_config():
+    enabled = enabled_addon_ids()
+    theme = active_theme_id()
+    themes = discover_themes()
+    return jsonify(
+        active_theme=theme,
+        theme_entry=themes[theme]["entry"] if theme else None,
+        enabled_addons=[
+            {"id": aid, "entry": manifest["entry"], "name": manifest.get("name", aid)}
+            for aid, manifest in discover_addons().items()
+            if aid in enabled
+        ],
+    )
+
+
+@app.get("/api/themes/<theme_id>/<path:filename>")
+def serve_theme_file(theme_id, filename):
+    themes = discover_themes()
+    if theme_id not in themes:
+        abort(404)
+    # Only ever hand back the declared entry file or other assets sitting
+    # inside that exact theme's own folder - send_from_directory already
+    # refuses ../ traversal, this just also refuses reaching into a
+    # *different* theme's folder by name.
+    return send_from_directory(os.path.join(THEMES_DIR, theme_id), filename)
+
+
+@app.get("/api/addons/<addon_id>/<path:filename>")
+def serve_addon_file(addon_id, filename):
+    if addon_id not in enabled_addon_ids():
+        abort(404)
+    return send_from_directory(os.path.join(ADDONS_DIR, addon_id), filename)
+
+
+@app.get("/api/addons/<addon_id>/config")
+def get_addon_config_public(addon_id):
+    """Read-only, unauthenticated view of an addon's current config, so the
+    addon's own entry script can pick up whatever an admin configured (e.g.
+    the MOTD banner's text) without needing to be logged in first - same
+    trust boundary as the addon script itself."""
+    addons = discover_addons()
+    manifest = addons.get(addon_id)
+    if not manifest or addon_id not in enabled_addon_ids():
+        abort(404)
+    return jsonify(addon_config_for(addon_id, manifest))
+
+
+@app.get("/api/addons/<addon_id>/config-script")
+def serve_addon_config_script(addon_id):
+    """Serves an addon's declared config_entry file, regardless of whether
+    the addon is currently enabled - an admin should be able to configure
+    an addon before switching it on. Only ever the exact file the addon's
+    own manifest names, same no-secrets trust boundary as any other addon
+    asset (see docs/ADDON_DEVELOPMENT.md)."""
+    addons = discover_addons()
+    manifest = addons.get(addon_id)
+    entry = manifest.get("config_entry") if manifest else None
+    if not manifest or not manifest.get("configurable") or not entry:
+        abort(404)
+    return send_from_directory(os.path.join(ADDONS_DIR, addon_id), entry)
+
+
+# ---------------------------------------------------------------------------
+# Live updates - Server-Sent Events
+# ---------------------------------------------------------------------------
+
+@app.get("/api/events")
+def site_events():
+    def stream():
+        q = queue.Queue(maxsize=100)
+        with _event_subscribers_lock:
+            _event_subscribers.add(q)
+        try:
+            yield "retry: 2000\n\n"
+            while True:
+                try:
+                    payload = q.get(timeout=15)
+                    yield f"data: {payload}\n\n"
+                except queue.Empty:
+                    yield ": keep-alive\n\n"  # comment line, keeps proxies from timing out the connection
+        except GeneratorExit:
+            pass
+        finally:
+            with _event_subscribers_lock:
+                _event_subscribers.discard(q)
+
+    return Response(
+        stream(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Admin routes
 # ---------------------------------------------------------------------------
+
+@app.post("/api/admin/addons/upload")
+@jwt_required()
+def admin_upload_addon():
+    return _handle_extension_upload(ADDONS_DIR, "addon.json", discover_addons, "addon")
+
+
+@app.post("/api/admin/themes/upload")
+@jwt_required()
+def admin_upload_theme():
+    return _handle_extension_upload(THEMES_DIR, "theme.json", discover_themes, "theme")
+
+
+@app.get("/api/admin/addons")
+@jwt_required()
+def admin_list_addons():
+    err = admin_required()
+    if err:
+        return err
+    enabled = set(enabled_addon_ids())
+    addons = discover_addons()
+    result = []
+    for aid, manifest in sorted(addons.items()):
+        compatible, compatibility_note = check_core_version_constraint(manifest.get("core"))
+        result.append({
+            "id": aid,
+            "name": manifest.get("name", aid),
+            "version": manifest.get("version", "0.0.0"),
+            "author": manifest.get("author", ""),
+            "description": manifest.get("description", ""),
+            "enabled": aid in enabled,
+            # Whether the toggle can be used at all - false for an addon
+            # the rest of the platform relies on (it's shown, disabled,
+            # "Always on"), separate from whether it's *currently*
+            # compatible (see below).
+            "can_disable": manifest.get("can_disable") is not False,
+            # Every addon declares "core" (a version requirement, e.g.
+            # ">=1.0.0") checked against OPENCTF_VERSION. An incompatible
+            # one is always reported not-enabled above regardless of what
+            # was last saved, and its toggle is shown disabled with
+            # compatibility_note explaining why.
+            "core_requirement": manifest.get("core"),
+            "compatible": compatible,
+            "compatibility_note": compatibility_note,
+            # Whether to show the gear/"Configure" button for this addon.
+            "configurable": bool(manifest.get("configurable")) and bool(manifest.get("config_entry")),
+        })
+    return jsonify(result)
+
+
+@app.post("/api/admin/addons/<addon_id>/toggle")
+@jwt_required()
+def admin_toggle_addon(addon_id):
+    err = admin_required()
+    if err:
+        return err
+    addons = discover_addons()
+    manifest = addons.get(addon_id)
+    if not manifest:
+        return jsonify(error="addon not found"), 404
+    compatible, reason = check_core_version_constraint(manifest.get("core"))
+    if not compatible:
+        return jsonify(error=reason), 400
+    if manifest.get("can_disable") is False:
+        return jsonify(error="this addon can't be disabled"), 400
+    current = set(enabled_addon_ids())
+    if addon_id in current:
+        current.discard(addon_id)
+    else:
+        current.add(addon_id)
+    # Never persist an always-on (can_disable: false) addon into the
+    # stored list - it's included via enabled_addon_ids() regardless of
+    # what's saved here.
+    always_on = {a for a, m in addons.items() if m.get("can_disable") is False}
+    set_setting("enabled_addons", sorted(current - always_on))
+    now_enabled = addon_id in enabled_addon_ids()
+    broadcast_event("addon_toggled", {
+        "id": addon_id,
+        "enabled": now_enabled,
+        "name": manifest.get("name", addon_id),
+        "entry": manifest.get("entry"),
+    })
+    return jsonify(id=addon_id, enabled=now_enabled)
+
+
+@app.delete("/api/admin/addons/<addon_id>")
+@jwt_required()
+def admin_delete_addon(addon_id):
+    err = admin_required()
+    if err:
+        return err
+    addons = discover_addons()
+    manifest = addons.get(addon_id)
+    if not manifest:
+        return jsonify(error="addon not found"), 404
+    if manifest.get("can_disable") is False:
+        return jsonify(error="this addon can't be deleted"), 400
+    folder = os.path.join(ADDONS_DIR, addon_id)
+    if not os.path.isdir(folder):
+        return jsonify(error="addon not found"), 404
+
+    shutil.rmtree(folder)
+
+    # Drop it from the stored enabled list and its saved config, if any -
+    # otherwise both would silently linger (harmlessly, since
+    # enabled_addon_ids() and addon_config_for() already ignore ids that
+    # no longer exist on disk, but there's no reason to keep the rows).
+    current = set(get_setting("enabled_addons", []) or [])
+    if addon_id in current:
+        current.discard(addon_id)
+        set_setting("enabled_addons", sorted(current))
+    delete_setting(addon_config_setting_key(addon_id))
+
+    # Every open client needs to know this addon is gone the same way it
+    # would if it had just been disabled (remove its script's effects,
+    # hide any view it registered) - addon_toggled with enabled: false is
+    # exactly that event, reused here rather than inventing a parallel one
+    # every addon script would also need to listen for.
+    broadcast_event("addon_toggled", {
+        "id": addon_id,
+        "enabled": False,
+        "name": manifest.get("name", addon_id),
+        "entry": manifest.get("entry"),
+    })
+    broadcast_event("addon_deleted", {"id": addon_id, "name": manifest.get("name", addon_id)})
+    return jsonify(deleted=True)
+
+
+@app.get("/api/admin/addons/<addon_id>/config")
+@jwt_required()
+def admin_get_addon_config(addon_id):
+    err = admin_required()
+    if err:
+        return err
+    addons = discover_addons()
+    manifest = addons.get(addon_id)
+    if not manifest:
+        return jsonify(error="addon not found"), 404
+    if not manifest.get("configurable"):
+        return jsonify(error="addon has no configuration"), 400
+    return jsonify(
+        id=addon_id,
+        name=manifest.get("name", addon_id),
+        config=addon_config_for(addon_id, manifest),
+    )
+
+
+@app.post("/api/admin/addons/<addon_id>/config")
+@jwt_required()
+def admin_set_addon_config(addon_id):
+    err = admin_required()
+    if err:
+        return err
+    addons = discover_addons()
+    manifest = addons.get(addon_id)
+    if not manifest:
+        return jsonify(error="addon not found"), 404
+    if not manifest.get("configurable"):
+        return jsonify(error="addon has no configuration"), 400
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify(error="config must be an object"), 400
+    set_setting(addon_config_setting_key(addon_id), data)
+    merged = addon_config_for(addon_id, manifest)
+    broadcast_event("addon_config_changed", {"id": addon_id, "config": merged})
+    return jsonify(id=addon_id, config=merged)
+
+
+@app.get("/api/admin/themes")
+@jwt_required()
+def admin_list_themes():
+    err = admin_required()
+    if err:
+        return err
+    active = active_theme_id()
+    themes = discover_themes()
+    return jsonify([
+        {
+            "id": tid,
+            "name": manifest.get("name", tid),
+            "version": manifest.get("version", "0.0.0"),
+            "author": manifest.get("author", ""),
+            "description": manifest.get("description", ""),
+            "active": tid == active,
+        }
+        for tid, manifest in sorted(themes.items())
+    ])
+
+
+@app.post("/api/admin/theme")
+@jwt_required()
+def admin_set_theme():
+    err = admin_required()
+    if err:
+        return err
+    data = request.get_json(force=True)
+    theme_id = data.get("theme_id")
+    themes = discover_themes()
+    if theme_id and theme_id not in themes:
+        return jsonify(error="theme not found"), 404
+    set_setting("active_theme", theme_id or None)
+    theme_entry = themes[theme_id]["entry"] if theme_id else None
+    broadcast_event("theme_changed", {"active_theme": theme_id or None, "theme_entry": theme_entry})
+    return jsonify(active_theme=theme_id or None)
+
+
+@app.delete("/api/admin/themes/<theme_id>")
+@jwt_required()
+def admin_delete_theme(theme_id):
+    err = admin_required()
+    if err:
+        return err
+    themes = discover_themes()
+    if theme_id not in themes:
+        return jsonify(error="theme not found"), 404
+    folder = os.path.join(THEMES_DIR, theme_id)
+    if not os.path.isdir(folder):
+        return jsonify(error="theme not found"), 404
+
+    shutil.rmtree(folder)
+
+    # If it was the active theme, fall back to Default rather than leave
+    # every client pointed at a stylesheet that no longer exists.
+    was_active = active_theme_id() == theme_id
+    if was_active:
+        set_setting("active_theme", None)
+        broadcast_event("theme_changed", {"active_theme": None, "theme_entry": None})
+    broadcast_event("theme_deleted", {"id": theme_id, "was_active": was_active})
+    return jsonify(deleted=True)
+
 
 @app.get("/api/admin/stats")
 @jwt_required()
@@ -1216,6 +2037,140 @@ def delete_team(team_id):
     return jsonify(message="deleted")
 
 
+# ---------------------------------------------------------------------------
+# Certifications
+#
+# Backs the Certifications addon (server/addons/certifications/) - see
+# docs/ADDON_DEVELOPMENT.md for why this lives here in core rather than in
+# the addon itself: addons in this platform are client-side only (a script
+# + optional config screen), so any feature needing its own database table
+# and server logic is added here as ordinary first-party routes, the same
+# way the rest of the app is built. The addon is the UI/branding layer on
+# top of these.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/certifications/mine")
+@jwt_required()
+def list_my_certifications():
+    user = current_user()
+    if not user:
+        return jsonify(error="not found"), 404
+    certs = (
+        Certification.query.filter_by(recipient_user_id=user.id)
+        .order_by(Certification.issued_at.desc())
+        .all()
+    )
+    return jsonify([c.to_dict() for c in certs])
+
+
+@app.get("/api/certifications/verify/<cert_uid>")
+def verify_certification(cert_uid):
+    """Public on purpose - this is the whole point of a verification code:
+    anyone holding a printed certificate (or a link to this URL) should be
+    able to confirm who it belongs to and whether it's still valid,
+    without needing an OpenCTF account themselves."""
+    cert = Certification.query.filter_by(cert_uid=cert_uid.strip().upper()).first()
+    if not cert:
+        return jsonify(found=False), 404
+    return jsonify(found=True, **cert.to_dict(include_uid=False))
+
+
+@app.get("/api/admin/certifications")
+@jwt_required()
+def admin_list_certifications():
+    err = admin_required()
+    if err:
+        return err
+    certs = Certification.query.order_by(Certification.issued_at.desc()).all()
+    return jsonify([c.to_dict() for c in certs])
+
+
+@app.post("/api/admin/certifications")
+@jwt_required()
+def admin_create_certification():
+    err = admin_required()
+    if err:
+        return err
+    data = request.get_json(force=True) or {}
+
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify(error="title is required"), 400
+    if len(title) > 150:
+        return jsonify(error="title is too long"), 400
+
+    style = (data.get("style") or "classic").strip()
+    if style not in CERTIFICATION_STYLES:
+        return jsonify(error=f'style must be one of {", ".join(CERTIFICATION_STYLES)}'), 400
+
+    description = (data.get("description") or "").strip()
+
+    recipient_user = None
+    recipient_username = (data.get("recipient_username") or "").strip()
+    recipient_name = (data.get("recipient_name") or "").strip()
+    if recipient_username:
+        recipient_user = User.query.filter_by(username=recipient_username).first()
+        if not recipient_user:
+            return jsonify(error=f'no user named "{recipient_username}"'), 404
+        recipient_name = recipient_name or recipient_user.display_name or recipient_user.username
+    if not recipient_name:
+        return jsonify(error="recipient_name (or a valid recipient_username) is required"), 400
+    if len(recipient_name) > 120:
+        return jsonify(error="recipient_name is too long"), 400
+
+    expires_at = None
+    expires_raw = data.get("expires_at")
+    if expires_raw:
+        try:
+            expires_at = datetime.fromisoformat(expires_raw)
+        except ValueError:
+            return jsonify(error="expires_at must be an ISO date (e.g. 2027-01-01)"), 400
+    else:
+        expires_days = data.get("expires_in_days")
+        if expires_days not in (None, ""):
+            try:
+                days = int(expires_days)
+            except (TypeError, ValueError):
+                return jsonify(error="expires_in_days must be a whole number"), 400
+            if days <= 0:
+                return jsonify(error="expires_in_days must be positive"), 400
+            expires_at = datetime.utcnow() + timedelta(days=days)
+
+    cert = Certification(
+        cert_uid=generate_cert_uid(),
+        title=title,
+        description=description,
+        style=style,
+        recipient_user_id=recipient_user.id if recipient_user else None,
+        recipient_name=recipient_name,
+        expires_at=expires_at,
+        created_by=current_user().username,
+    )
+    db.session.add(cert)
+    db.session.commit()
+    broadcast_event("certification_issued", {
+        "id": cert.id,
+        "recipient_username": recipient_user.username if recipient_user else None,
+    })
+    return jsonify(cert.to_dict()), 201
+
+
+@app.delete("/api/admin/certifications/<int:cert_id>")
+@jwt_required()
+def admin_delete_certification(cert_id):
+    err = admin_required()
+    if err:
+        return err
+    cert = Certification.query.get(cert_id)
+    if not cert:
+        return jsonify(error="certification not found"), 404
+    recipient_username = cert.recipient.username if cert.recipient else None
+    db.session.delete(cert)
+    db.session.commit()
+    broadcast_event("certification_revoked", {"id": cert_id, "recipient_username": recipient_username})
+    return jsonify(deleted=True)
+
+
 @app.get("/api/health")
 def health():
     return jsonify(status="ok", time=datetime.utcnow().isoformat())
@@ -1363,4 +2318,6 @@ if __name__ == "__main__":
 
     atexit.register(stop_target_server)
     print(f"Started isolated target server on {app.config['TARGET_SERVER_URL']}")
-    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    # threaded=True so the long-lived /api/events (SSE) connection each
+    # client keeps open doesn't block ordinary requests behind it.
+    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False, threaded=True)

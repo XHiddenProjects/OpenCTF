@@ -1,0 +1,14 @@
+{
+  "id": "sound-effects",
+  "name": "Sound Effects",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "Plays a short beep on a correct flag submission (and a lower tone on a wrong one). Enable/disable it from its toggle, not this config - the gear button only holds the volume. Purely synthesized - no audio files.",
+  "entry": "addon.js",
+  "core": ">=1.0.0",
+  "configurable": true,
+  "config_entry": "config.js",
+  "default_config": {
+    "volume": 0.2
+  }
+}

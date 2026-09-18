@@ -1,0 +1,8 @@
+{
+  "id": "crimson-ops",
+  "name": "Crimson Ops",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "High-contrast black/red palette for a more \"hacker terminal\" look.",
+  "entry": "theme.css"
+}

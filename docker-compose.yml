@@ -35,6 +35,11 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
     volumes:
       - ctf-data:/app/instance
+      # Mount your own addons/themes over the ones baked into the image so
+      # you can add or update them without rebuilding it. See
+      # docs/ADDON_DEVELOPMENT.md.
+      - ./server/addons:/app/addons
+      - ./server/themes:/app/themes
     command: ["gunicorn", "-w", "1", "-b", "0.0.0.0:5000", "app:app"]
     restart: unless-stopped
 

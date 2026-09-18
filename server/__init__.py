@@ -9,4 +9,4 @@ directly from this directory (`python app.py`, `python target_app.py`,
 `python seed_challenges.py`) is unaffected either way.
 """
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"

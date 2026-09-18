@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openctf-server"
-version = "1.0.1"
+version = "1.1.0"
 description = "Flask API and sandboxed target-website service for the OpenCTF lab CTF platform"
 readme = "PACKAGE_README.md"
 requires-python = ">=3.10"
@@ -47,4 +47,4 @@ packages = ["openctf_server"]
 package-dir = { "openctf_server" = "." }
 
 [tool.setuptools.package-data]
-openctf_server = ["PACKAGE_README.md"]
+openctf_server = ["PACKAGE_README.md", "addons/**/*", "themes/**/*"]

@@ -1,0 +1,16 @@
+{
+  "id": "core",
+  "name": "Core Toolkit",
+  "version": "1.1.0",
+  "author": "OpenCTF",
+  "description": "Built-in functionality the rest of the platform relies on: solve toasts, a live connection indicator, and applying live theme/addon updates as an admin makes them. Always on.",
+  "entry": "addon.js",
+  "core": ">=1.0.0",
+  "can_disable": false,
+  "configurable": true,
+  "config_entry": "config.js",
+  "default_config": {
+    "solve_toasts": true,
+    "connection_indicator": true
+  }
+}

@@ -86,12 +86,136 @@ let TARGET_NAVIGATING = false;
 let ADMIN_CHALLENGES = [];
 let ADMIN_USERS = [];
 let ADMIN_TEAMS = [];
+let ADMIN_ADDONS = [];
+let ADMIN_THEMES = [];
 let OLLAMA_MODELS = [];
 let OLLAMA_DEFAULT_MODEL = null;
 let EDITING_CHALLENGE_ID = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+// Every flag-submission form across the four challenge-modal types, so a
+// stale flag (correct or not, from whatever was last typed/submitted)
+// never lingers into the next time any of these modals is opened.
+const FLAG_INPUT_SELECTORS = ["#flag-input", "#ai-flag-input", "#quiz-flag-input", "#terminal-flag-input"];
+
+function clearAllFlagInputs() {
+  FLAG_INPUT_SELECTORS.forEach((sel) => {
+    const el = $(sel);
+    if (el) el.value = "";
+  });
+}
+
+/** Hide a challenge modal and reset every flag input, not just the one
+ * that modal itself owns - belt-and-suspenders so reopening any challenge
+ * modal, of any type, never shows a leftover flag from a previous one. */
+function closeChallengeModal(modalSelector) {
+  $(modalSelector).classList.add("hidden");
+  clearAllFlagInputs();
+}
+
+/** Views an addon has added via window.OpenCTF.registerView() - see
+ * below. Keyed by id, same id used for the nav button's data-view (or
+ * admin-tab-btn's data-admin-tab, for an "admin" location) and the view
+ * container's id, same convention the built-in views
+ * (challenges/scoreboard/profile/admin) already follow. Each entry also
+ * tracks what it takes for the entry point (nav button / admin tab
+ * button) to actually be visible right now - see updateViewVisibility(). */
+const REGISTERED_VIEWS = {};
+
+/** Whether `user` (as OpenCTF.getUser() returns it, or null when logged
+ * out) is allowed to see a view/tab registered with this `target`:
+ *   - "everyone" (default) or a falsy value - anyone logged in
+ *   - "admin" - only admins
+ *   - a function (user) => boolean - full custom logic
+ *   - an array of usernames - only those specific people
+ *   - { usernames: [...] } and/or { teams: [...] } - specific people and/or specific teams
+ */
+function viewTargetAllows(target, user) {
+  if (!target || target === "everyone") return true;
+  if (target === "admin") return !!(user && user.is_admin);
+  if (typeof target === "function") {
+    try {
+      return !!target(user);
+    } catch (err) {
+      console.error("[OpenCTF addon] registerView target function threw:", err);
+      return false;
+    }
+  }
+  if (Array.isArray(target)) return !!(user && target.includes(user.username));
+  if (typeof target === "object") {
+    if (user && Array.isArray(target.usernames) && target.usernames.includes(user.username)) return true;
+    if (user && Array.isArray(target.teams) && target.teams.includes(user.team)) return true;
+    return false;
+  }
+  return true;
+}
+
+/** Shows/hides a registered view's entry point (nav button, admin tab
+ * button, or - for a "header"/"footer" chrome item, which has no button -
+ * its container directly) based on both its own target audience and
+ * whether the addon that registered it is currently enabled - called on
+ * registration, on login (a different user may now be looking at it), and
+ * whenever the owning addon is toggled live (see handleLiveEvent's
+ * "addon_toggled"). */
+function updateViewVisibility(id) {
+  const registered = REGISTERED_VIEWS[id];
+  const toggleTarget = registered && (registered.button || registered.container);
+  if (!toggleTarget) return;
+  const allowed = registered.enabled !== false && viewTargetAllows(registered.target, ME);
+  toggleTarget.classList.toggle("hidden", !allowed);
+  if (!allowed && registered.button && registered.button.classList.contains("active")) {
+    // Currently showing the thing we just hid - don't strand the person
+    // on a blank/inaccessible pane. Not applicable to "chrome" kind (no
+    // button, nothing being "shown" in the tab sense).
+    if (registered.kind === "admin-tab") switchAdminTab("challenges");
+    else if (registered.kind === "sidebar") switchToView("challenges");
+  }
+}
+
+/** Re-checks every registered view's visibility - called after login,
+ * since a view's `target` is evaluated against whoever's currently logged
+ * in, and an addon may have registered its view before that was known. */
+function refreshAllViewVisibility() {
+  Object.keys(REGISTERED_VIEWS).forEach(updateViewVisibility);
+}
+
+function switchToView(view) {
+  $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  $$(".view").forEach((v) => v.classList.add("hidden"));
+  const viewEl = $(`#view-${view}`);
+  if (!viewEl) return;
+  viewEl.classList.remove("hidden");
+  if (view === "scoreboard") loadScoreboard();
+  if (view === "profile") loadProfileForm();
+  if (view === "admin") loadAdmin();
+  const registered = REGISTERED_VIEWS[view];
+  if (registered && registered.kind !== "admin-tab") {
+    try {
+      registered.render(viewEl);
+    } catch (err) {
+      console.error(`[OpenCTF addon] view "${view}" render threw:`, err);
+    }
+  }
+  octfEmit("view:change", view);
+}
+
+function switchAdminTab(tab) {
+  $$(".admin-tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.adminTab === tab));
+  $$(".admin-tab").forEach((t) => t.classList.add("hidden"));
+  const paneEl = $(`#admin-tab-${tab}`);
+  if (!paneEl) return;
+  paneEl.classList.remove("hidden");
+  const registered = REGISTERED_VIEWS[tab];
+  if (registered && registered.kind === "admin-tab") {
+    try {
+      registered.render(paneEl);
+    } catch (err) {
+      console.error(`[OpenCTF addon] admin tab "${tab}" render threw:`, err);
+    }
+  }
+}
 
 async function api(path, options = {}) {
   const res = await fetch(SERVER_URL + path, {
@@ -108,6 +232,374 @@ async function api(path, options = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Addon API
+//
+// The public surface addon scripts (server/addons/*/addon.js) get to work
+// with. Kept intentionally small: a way to call the same API the app
+// itself uses, a read-only look at the current user, and an event bus for
+// the handful of moments an addon is likely to care about. Addon scripts
+// are plain <script> tags with full DOM access regardless of what's on
+// this object - it's a convenience API, not a sandbox. See
+// docs/ADDON_DEVELOPMENT.md for the full reference and event list.
+// ---------------------------------------------------------------------------
+const OCTF_EVENT_HANDLERS = {};
+// Addon ids whose entry script has already been injected into the page -
+// used both at startup and by the live-updates handler below, so an
+// addon_toggled event for something already loaded doesn't double-inject.
+const LOADED_ADDON_IDS = new Set();
+let LIVE_CONNECTED = false;
+
+// "ready" and the live-updates connection state are "sticky" - an addon's
+// own <script> is fetched asynchronously and can easily finish loading
+// (and call OpenCTF.on(...)) *after* the real thing already happened, so a
+// plain fire-once emitter would silently strand it. For just these events,
+// on() replays the current state to a handler that subscribes late, one
+// microtask later (so it behaves like a normal async callback, not a
+// synchronous call from inside on() itself).
+let OCTF_READY_FIRED = false;
+let OCTF_LIVE_STATUS_KNOWN = false;
+
+function octfEmit(event, detail) {
+  if (event === "ready") OCTF_READY_FIRED = true;
+  if (event === "live:connected" || event === "live:disconnected") OCTF_LIVE_STATUS_KNOWN = true;
+  (OCTF_EVENT_HANDLERS[event] || []).forEach((handler) => {
+    try {
+      handler(detail);
+    } catch (err) {
+      // An addon's own bug should never be able to break the host app.
+      console.error(`[OpenCTF addon] "${event}" handler threw:`, err);
+    }
+  });
+}
+
+window.OpenCTF = {
+  /** Same authenticated fetch helper the app itself uses. */
+  api,
+  /** The logged-in user, or null if nobody's logged in yet. */
+  getUser() {
+    return ME.username ? { ...ME } : null;
+  },
+  /**
+   * Subscribe to a platform event. Events fired: "ready" (once, after the
+   * app has loaded site config and rendered its first screen),
+   * "auth:login", "auth:logout", "view:change" (detail: view name),
+   * "challenge:solved" (detail: {id, title, category, points}),
+   * "challenge:wrong" (detail: {id, title, category}), "live:connected" /
+   * "live:disconnected" (the /api/events connection), "site:theme_changed"
+   * (detail: {active_theme, theme_entry}), "addon:enabled" / "addon:disabled"
+   * (detail: {id, name}), and "addon:config_changed" (detail: {id, config})
+   * whenever an admin saves that addon's config, from any client.
+   *
+   * "ready" and "live:connected"/"live:disconnected" are replayed to a
+   * handler registered after they already fired, so an addon doesn't need
+   * to race its own script's load time against the app's startup.
+   */
+  on(event, handler) {
+    (OCTF_EVENT_HANDLERS[event] = OCTF_EVENT_HANDLERS[event] || []).push(handler);
+    if (event === "ready" && OCTF_READY_FIRED) {
+      Promise.resolve().then(() => handler());
+    } else if ((event === "live:connected" || event === "live:disconnected") && OCTF_LIVE_STATUS_KNOWN) {
+      const isCurrentState = (event === "live:connected") === LIVE_CONNECTED;
+      if (isCurrentState) Promise.resolve().then(() => handler());
+    }
+  },
+  off(event, handler) {
+    if (!OCTF_EVENT_HANDLERS[event]) return;
+    OCTF_EVENT_HANDLERS[event] = OCTF_EVENT_HANDLERS[event].filter((h) => h !== handler);
+  },
+  /** Whether the live-updates (/api/events) connection is currently up. */
+  isLive() {
+    return LIVE_CONNECTED;
+  },
+  /**
+   * Read another addon's - or your own - current saved config (whatever an
+   * admin set via the gear button, merged over its declared defaults).
+   * Unauthenticated, same trust boundary as the addon script itself.
+   */
+  async getAddonConfig(addonId) {
+    const res = await fetch(`${SERVER_URL}/api/addons/${addonId}/config`);
+    if (!res.ok) throw new Error(`could not load config for "${addonId}" (${res.status})`);
+    return res.json();
+  },
+  /** Fire a platform event locally without a round trip to the server -
+   * handy for an addon's own config screen to preview itself (e.g. a
+   * "preview" button that fires a fake "challenge:solved"). */
+  emitLocal(event, detail) {
+    octfEmit(event, detail);
+  },
+  /**
+   * Add a tab and its own full-page/full-pane view - the same kind of
+   * view the built-in Challenges/Scoreboard/Profile/Admin tabs are.
+   * `render(container)` is called every time the tab is switched to
+   * (matching how the built-in views already reload their own data on
+   * every visit) - your addon owns everything inside `container` from
+   * there on.
+   *
+   *   window.OpenCTF.registerView({
+   *     id: "certifications",       // used as the button's data-view/data-admin-tab and the view element's id
+   *     label: "Certifications",    // button text
+   *     render(container) { ... },  // called every time this tab is opened
+   *     target: "everyone",         // optional - who can see it; see below
+   *     location: "sidebar",        // optional - "sidebar" (default) or "admin"
+   *   });
+   *
+   * `location`: "sidebar" (default) adds a top-level nav button and view,
+   * alongside Challenges/Scoreboard/etc. "admin" instead adds a tab
+   * inside the existing Admin panel's own tab bar (alongside
+   * Challenges/Users/Teams/Addons & Themes there) - use this for
+   * admin-only tooling that doesn't need its own top-level place in the
+   * main sidebar. An "admin" location is only ever reachable by an admin
+   * regardless of `target` (the Admin panel itself is admin-only), but
+   * `target` still narrows it further if given.
+   *
+   * `target`: who can see the entry point at all - "everyone" (default,
+   * anyone logged in), "admin", a function `(user) => boolean` for
+   * arbitrary logic, an array of usernames, or `{ usernames: [...] }`
+   * and/or `{ teams: [...] }` for specific people and/or specific teams.
+   * `user` is whatever `OpenCTF.getUser()` returns (or `null`). Re-checked
+   * on login, so it's safe to register a view before knowing who's
+   * logged in yet.
+   *
+   * The entry point is also automatically hidden while the addon that
+   * registered it is disabled, and shown again once it's re-enabled - no
+   * extra wiring needed for that (see `"addon:disabled"` elsewhere in
+   * this object if your view also needs to react to that itself, e.g. to
+   * stop a poll/timer).
+   *
+   * Returns { button, container } (both real DOM elements) so you can
+   * tweak them further (e.g. add an icon), or null if `id` is already
+   * taken or `location` isn't recognized - each id can only be
+   * registered once, across every enabled addon.
+   */
+  registerView({ id, label, render, target = "everyone", location = "sidebar" }) {
+    const VALID_LOCATIONS = ["sidebar", "admin", "header", "footer"];
+    if (!id || !label || typeof render !== "function") {
+      console.error('[OpenCTF] registerView requires "id", "label", and a render(container) function');
+      return null;
+    }
+    if (!VALID_LOCATIONS.includes(location)) {
+      console.error(`[OpenCTF] registerView "location" must be one of: ${VALID_LOCATIONS.join(", ")}`);
+      return null;
+    }
+    if (REGISTERED_VIEWS[id] || document.getElementById(`view-${id}`) || document.getElementById(`admin-tab-${id}`)) {
+      console.error(`[OpenCTF] a view with id "${id}" is already registered`);
+      return null;
+    }
+
+    let button = null;
+    let container;
+    let kind;
+
+    if (location === "admin") {
+      kind = "admin-tab";
+      const adminTabs = document.querySelector(".admin-tabs");
+      button = document.createElement("button");
+      button.className = "admin-tab-btn";
+      button.dataset.adminTab = id;
+      button.textContent = label;
+      adminTabs.appendChild(button);
+
+      container = document.createElement("div");
+      container.id = `admin-tab-${id}`;
+      container.className = "admin-tab hidden";
+      document.getElementById("view-admin").appendChild(container);
+    } else if (location === "header" || location === "footer") {
+      // Not a tab - a persistent slot visible across every view, so there's
+      // no button and (see below) render() runs once immediately rather
+      // than on a "switch" that will never come. Several addons can each
+      // add their own item to the same slot - see .addon-chrome-slot in
+      // styles.css for the row layout that makes that work.
+      kind = "chrome";
+      const slot = document.getElementById(location === "header" ? "addon-header-slot" : "addon-footer-slot");
+      container = document.createElement("div");
+      container.id = `view-${id}`;
+      container.className = "addon-chrome-item";
+      slot.appendChild(container);
+    } else {
+      kind = "sidebar";
+      button = document.createElement("button");
+      button.className = "nav-btn";
+      button.dataset.view = id;
+      button.textContent = label;
+      const spacer = document.querySelector(".sidebar-spacer");
+      spacer.parentNode.insertBefore(button, spacer);
+
+      container = document.createElement("div");
+      container.id = `view-${id}`;
+      container.className = "view hidden";
+      document.querySelector(".content").appendChild(container);
+    }
+
+    REGISTERED_VIEWS[id] = { render, button, container, target, kind, enabled: true };
+    updateViewVisibility(id);
+
+    if (kind === "chrome") {
+      try {
+        render(container);
+      } catch (err) {
+        console.error(`[OpenCTF addon] view "${id}" render threw:`, err);
+      }
+    }
+
+    return button ? { button, container } : { container };
+  },
+};
+
+function notifySolve(challenge, body) {
+  if (!body || !challenge) return;
+  if (body.correct) {
+    octfEmit("challenge:solved", {
+      id: challenge.id,
+      title: challenge.title,
+      category: challenge.category,
+      points: challenge.points,
+    });
+  } else {
+    octfEmit("challenge:wrong", {
+      id: challenge.id,
+      title: challenge.title,
+      category: challenge.category,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Site config: active theme + enabled addons
+//
+// Fetched once at startup (unauthenticated - the theme has to apply to the
+// login screen too) and applied before wiring up the rest of the app. From
+// then on, connectLiveUpdates() below keeps every open client in sync as an
+// admin changes the theme, toggles an addon, or saves an addon's config -
+// no refresh needed.
+// ---------------------------------------------------------------------------
+
+function applyThemeLink(themeId, themeEntry) {
+  const existing = document.getElementById("addon-theme-css");
+  if (existing) existing.remove();
+  if (!themeId || !themeEntry) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.id = "addon-theme-css";
+  // Loaded after the base stylesheet in index.html, so its variable
+  // overrides win the cascade without needing !important anywhere.
+  link.href = `${SERVER_URL}/api/themes/${themeId}/${themeEntry}`;
+  document.head.appendChild(link);
+}
+
+function injectAddonScript(addon) {
+  if (!addon || !addon.id || !addon.entry || LOADED_ADDON_IDS.has(addon.id)) return;
+  LOADED_ADDON_IDS.add(addon.id);
+  const script = document.createElement("script");
+  script.src = `${SERVER_URL}/api/addons/${addon.id}/${addon.entry}`;
+  script.defer = true;
+  script.onerror = () => console.error(`[OpenCTF] failed to load addon "${addon.id}"`);
+  document.body.appendChild(script);
+}
+
+async function applySiteExtensions() {
+  let config;
+  try {
+    const res = await fetch(SERVER_URL + "/api/site-config");
+    config = await res.json();
+  } catch {
+    return; // offline / unreachable server - just run with the default look
+  }
+  if (!config) return;
+
+  applyThemeLink(config.active_theme, config.theme_entry);
+  (config.enabled_addons || []).forEach(injectAddonScript);
+}
+
+// ---------------------------------------------------------------------------
+// Live updates - Server-Sent Events
+//
+// One long-lived, unauthenticated connection (theme/addon changes have to
+// reach the still-logged-out login screen too) that every client keeps
+// open. The admin routes that change a theme, toggle an addon, save an
+// addon's config, or install one via upload each push a small event here -
+// see broadcast_event() in server/app.py.
+// ---------------------------------------------------------------------------
+function connectLiveUpdates() {
+  if (!window.EventSource) return; // ancient runtime - just skip live updates
+  const source = new EventSource(SERVER_URL + "/api/events");
+  source.onopen = () => {
+    LIVE_CONNECTED = true;
+    octfEmit("live:connected");
+  };
+  source.onerror = () => {
+    LIVE_CONNECTED = false;
+    octfEmit("live:disconnected");
+    // EventSource retries the connection on its own (see "retry:" in the
+    // server's stream) - nothing else to do here.
+  };
+  source.onmessage = (event) => {
+    let msg;
+    try {
+      msg = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    handleLiveEvent(msg.type, msg.data);
+  };
+}
+
+function handleLiveEvent(type, data) {
+  switch (type) {
+    case "theme_changed":
+      applyThemeLink(data.active_theme, data.theme_entry);
+      octfEmit("site:theme_changed", data);
+      if (ME.is_admin) loadAdminThemes();
+      break;
+    case "addon_toggled":
+      if (data.enabled) {
+        injectAddonScript(data);
+        octfEmit("addon:enabled", data);
+      } else {
+        // Addon scripts aren't unloaded once fetched - a well-behaved
+        // addon listens for this and cleans up its own DOM/state (see
+        // server/addons/motd-banner/addon.js for an example).
+        octfEmit("addon:disabled", data);
+      }
+      // A view registered with the same id as its owning addon (the
+      // convention every shipped example follows) is shown/hidden
+      // automatically here - no per-addon wiring needed for that part.
+      if (REGISTERED_VIEWS[data.id]) {
+        REGISTERED_VIEWS[data.id].enabled = data.enabled;
+        updateViewVisibility(data.id);
+      }
+      if (ME.is_admin) loadAdminAddons();
+      break;
+    case "addon_config_changed":
+      octfEmit("addon:config_changed", data);
+      break;
+    case "addon_installed":
+      if (ME.is_admin) loadAdminAddons();
+      break;
+    case "addon_deleted":
+      // addon_toggled (enabled: false) - broadcast alongside this - already
+      // hides any view it registered and refreshes the admin addon list;
+      // this case exists so a client that missed/ignored that one (or
+      // just wants to react to deletion specifically) still can.
+      octfEmit("addon:deleted", data);
+      break;
+    case "theme_installed":
+      if (ME.is_admin) loadAdminThemes();
+      break;
+    case "theme_deleted":
+      if (ME.is_admin) loadAdminThemes();
+      break;
+    default:
+      // Anything else broadcast_event() was called with server-side (e.g.
+      // from an addon's own backend routes - see the Certifications addon
+      // and its /api/certifications/* routes in server/app.py) is
+      // forwarded as-is, so an addon can define and listen for its own
+      // event names without the host app needing to know about them
+      // ahead of time.
+      octfEmit(`server:${type}`, data);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
@@ -116,7 +608,10 @@ async function init() {
   SERVER_URL = config.serverUrl;
   $("#settings-url").value = SERVER_URL;
   wireEvents();
+  await applySiteExtensions();
+  connectLiveUpdates();
   loadRegistrationTeams();
+  octfEmit("ready");
 }
 
 function wireEvents() {
@@ -137,18 +632,11 @@ function wireEvents() {
   $("#logout").addEventListener("click", onLogout);
   wirePasswordToggles();
 
-  // Nav
-  $$(".nav-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      $$(".nav-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      const view = btn.dataset.view;
-      $$(".view").forEach((v) => v.classList.add("hidden"));
-      $(`#view-${view}`).classList.remove("hidden");
-      if (view === "scoreboard") loadScoreboard();
-      if (view === "profile") loadProfileForm();
-      if (view === "admin") loadAdmin();
-    });
+  // Nav - delegated (not a per-button loop) so a nav button an addon adds
+  // later via window.OpenCTF.registerView() works without extra wiring.
+  $(".sidebar").addEventListener("click", (e) => {
+    const btn = e.target.closest(".nav-btn");
+    if (btn) switchToView(btn.dataset.view);
   });
 
   $("#refresh-challenges").addEventListener("click", loadChallenges);
@@ -159,20 +647,20 @@ function wireEvents() {
   $("#refresh-scoreboard").addEventListener("click", loadScoreboard);
 
   // Challenge modal (standard)
-  $("#modal-close").addEventListener("click", () => $("#modal-challenge").classList.add("hidden"));
+  $("#modal-close").addEventListener("click", () => closeChallengeModal("#modal-challenge"));
   $("#form-submit-flag").addEventListener("submit", onSubmitFlag);
 
   // Terminal challenge modal
-  $("#terminal-close").addEventListener("click", () => $("#modal-terminal").classList.add("hidden"));
+  $("#terminal-close").addEventListener("click", () => closeChallengeModal("#modal-terminal"));
   $("#form-terminal-cmd").addEventListener("submit", onTerminalCommand);
   $("#form-submit-flag-terminal").addEventListener("submit", onSubmitFlagTerminal);
-  $("#ai-close").addEventListener("click", () => $("#modal-ai").classList.add("hidden"));
+  $("#ai-close").addEventListener("click", () => closeChallengeModal("#modal-ai"));
   $("#form-ai-chat").addEventListener("submit", onAiChatSubmit);
   $("#form-submit-flag-ai").addEventListener("submit", onSubmitFlagAi);
   $("#ai-mic").addEventListener("click", startAiSpeechInput);
 
   // Quiz challenge modal
-  $("#quiz-close").addEventListener("click", () => $("#modal-quiz").classList.add("hidden"));
+  $("#quiz-close").addEventListener("click", () => closeChallengeModal("#modal-quiz"));
   $("#form-submit-flag-quiz").addEventListener("submit", onSubmitFlagQuiz);
 
   // Settings modal
@@ -194,15 +682,26 @@ function wireEvents() {
   $("#form-web-address").addEventListener("submit", onTargetAddressSubmit);
   window.addEventListener("message", onTargetMessage);
 
-  // Admin: tab switching
-  $$(".admin-tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      $$(".admin-tab-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      const tab = btn.dataset.adminTab;
-      $$(".admin-tab").forEach((t) => t.classList.add("hidden"));
-      $(`#admin-tab-${tab}`).classList.remove("hidden");
-    });
+  // Admin: tab switching - delegated so a tab an addon adds later via
+  // window.OpenCTF.registerView({location: "admin"}) works without extra
+  // wiring, same reasoning as the main sidebar nav above.
+  $(".admin-tabs").addEventListener("click", (e) => {
+    const btn = e.target.closest(".admin-tab-btn");
+    if (btn) switchAdminTab(btn.dataset.adminTab);
+  });
+
+  // Admin: Addons & Themes
+  $("#theme-select").addEventListener("change", updateThemeDeleteButtonState);
+  $("#theme-save-btn").addEventListener("click", onSaveTheme);
+  $("#theme-delete-btn").addEventListener("click", onDeleteTheme);
+  $("#addon-config-close").addEventListener("click", () => $("#modal-addon-config").classList.add("hidden"));
+  wireUploadDropzone({
+    zoneId: "theme-upload-zone", inputId: "theme-upload-input", filenameId: "theme-upload-filename",
+    btnId: "theme-upload-btn", resultId: "theme-upload-result", kind: "themes",
+  });
+  wireUploadDropzone({
+    zoneId: "addon-upload-zone", inputId: "addon-upload-input", filenameId: "addon-upload-filename",
+    btnId: "addon-upload-btn", resultId: "addon-upload-result", kind: "addons",
   });
 
   // Admin: challenge form
@@ -326,6 +825,8 @@ async function onAuthed(body) {
   $("#who-avatar").textContent = ME.avatar || "🛡️";
 
   loadChallenges();
+  refreshAllViewVisibility(); // ME is only fully known now - re-check every registered view's target
+  octfEmit("auth:login");
 }
 
 function onLogout() {
@@ -344,6 +845,7 @@ function onLogout() {
   $('.nav-btn[data-view="challenges"]').classList.add("active");
   $$(".view").forEach((v) => v.classList.add("hidden"));
   $("#view-challenges").classList.remove("hidden");
+  octfEmit("auth:logout");
 }
 
 // ---------------------------------------------------------------------------
@@ -560,6 +1062,7 @@ async function onSubmitFlagAi(event) {
     result.textContent = body.correct ? "Correct! Challenge solved." : "Incorrect flag.";
     result.className = `modal-result ${body.correct ? "ok" : "err"}`;
     if (body.correct) await loadChallenges();
+    notifySolve(AI_CHALLENGE, body);
   } catch (err) {
     result.textContent = err.message;
     result.className = "modal-result err";
@@ -666,6 +1169,7 @@ async function onSubmitFlagQuiz(event) {
     result.textContent = body.correct ? "Correct! Challenge solved." : "Incorrect flag.";
     result.className = `modal-result ${body.correct ? "ok" : "err"}`;
     if (body.correct) await loadChallenges();
+    notifySolve(QUIZ_CHALLENGE, body);
   } catch (err) {
     result.textContent = err.message;
     result.className = "modal-result err";
@@ -691,6 +1195,7 @@ async function onSubmitFlag(e) {
       result.textContent = "Incorrect flag, try again.";
       result.className = "modal-result err";
     }
+    notifySolve(ACTIVE_CHALLENGE, body);
   } catch (err) {
     result.textContent = err.message;
     result.className = "modal-result err";
@@ -716,6 +1221,8 @@ async function openWebChallenge(c) {
   $("#web-tabs").classList.remove("hidden");
   switchWebTab("brief");
   $("#modal-result").textContent = "";
+  $("#modal-result").className = "modal-result";
+  $("#flag-input").value = "";
   const hintWrap = $("#modal-hint-wrap");
   hintWrap.classList.toggle("hidden", !c.hint);
   if (c.hint) $("#modal-hint").textContent = c.hint;
@@ -906,6 +1413,7 @@ async function onSubmitFlagTerminal(e) {
       result.textContent = "Incorrect flag, try again.";
       result.className = "modal-result err";
     }
+    notifySolve(TERMINAL_CHALLENGE, body);
   } catch (err) {
     result.textContent = err.message;
     result.className = "modal-result err";
@@ -993,7 +1501,14 @@ async function onChangePassword(e) {
 
 async function loadAdmin() {
   await loadAdminTeams();
-  await Promise.all([loadAdminStats(), loadAdminChallenges(), loadAdminUsers(), loadOllamaStatus()]);
+  await Promise.all([
+    loadAdminStats(),
+    loadAdminChallenges(),
+    loadAdminUsers(),
+    loadOllamaStatus(),
+    loadAdminThemes(),
+    loadAdminAddons(),
+  ]);
 }
 
 async function loadOllamaStatus() {
@@ -1170,6 +1685,292 @@ async function loadAdminTeams() {
     });
   } catch (err) {
     body.innerHTML = `<tr><td colspan="3" class="form-error">${err.message}</td></tr>`;
+  }
+}
+
+// ---- Theme: a dropdown (Default + every discovered theme) plus an
+// explicit Save button, so switching the active theme is a deliberate,
+// confirmed action rather than firing on every arrow-key press through the
+// list. Saving reaches every open client immediately via live updates.
+async function loadAdminThemes() {
+  const select = $("#theme-select");
+  const meta = $("#theme-meta");
+  const result = $("#theme-save-result");
+  try {
+    ADMIN_THEMES = await api("/api/admin/themes");
+    const options = ['<option value="">Default (no theme)</option>'].concat(
+      ADMIN_THEMES.map((t) => `<option value="${t.id}">${t.name} (v${t.version})</option>`)
+    );
+    select.innerHTML = options.join("");
+    const active = ADMIN_THEMES.find((t) => t.active);
+    select.value = active ? active.id : "";
+    renderThemeMeta(active || null);
+    updateThemeDeleteButtonState();
+    result.textContent = "";
+    result.className = "form-result";
+  } catch (err) {
+    meta.innerHTML = `<p class="form-error">${err.message}</p>`;
+  }
+}
+
+function renderThemeMeta(theme) {
+  const meta = $("#theme-meta");
+  if (!theme) {
+    meta.innerHTML = '<p class="extension-desc">The built-in OpenCTF look - no theme file loaded.</p>';
+    return;
+  }
+  meta.innerHTML = `
+    ${theme.author ? `<div class="extension-author">by ${theme.author}</div>` : ""}
+    ${theme.description ? `<div class="extension-desc">${theme.description}</div>` : ""}
+  `;
+}
+
+// The Default (no theme) look isn't a real theme folder on the server -
+// there's nothing there to delete - so the delete button only makes
+// sense, and is only shown, once a real theme is selected in the dropdown.
+function updateThemeDeleteButtonState() {
+  const select = $("#theme-select");
+  const deleteBtn = $("#theme-delete-btn");
+  deleteBtn.classList.toggle("hidden", !select.value);
+}
+
+async function onSaveTheme() {
+  const select = $("#theme-select");
+  const result = $("#theme-save-result");
+  result.textContent = "";
+  result.className = "form-result";
+  try {
+    await api("/api/admin/theme", {
+      method: "POST",
+      body: JSON.stringify({ theme_id: select.value || null }),
+    });
+    result.textContent = "Saved - live on every open client.";
+    result.className = "form-result ok";
+    await loadAdminThemes();
+  } catch (err) {
+    result.textContent = err.message;
+    result.className = "form-result err";
+    await loadAdminThemes(); // snap the dropdown back to the real state
+  }
+}
+
+async function onDeleteTheme() {
+  const select = $("#theme-select");
+  const themeId = select.value;
+  if (!themeId) return; // Default - nothing to delete
+  const theme = ADMIN_THEMES.find((t) => t.id === themeId);
+  const result = $("#theme-save-result");
+  if (!confirm(`Delete "${theme ? theme.name : themeId}"? This removes its folder from the server and can't be undone.`)) return;
+  try {
+    await api(`/api/admin/themes/${themeId}`, { method: "DELETE" });
+    result.textContent = "Deleted.";
+    result.className = "form-result ok";
+    await loadAdminThemes();
+  } catch (err) {
+    result.textContent = err.message;
+    result.className = "form-result err";
+  }
+}
+
+// ---- Addons: enable toggle plus a gear button (for addons that declare
+// "configurable": true) that opens that addon's own configuration GUI in a
+// modal - see openAddonConfigModal(). A "core" addon's toggle is shown but
+// disabled, since the server refuses to turn it off anyway.
+async function loadAdminAddons() {
+  const el = $("#admin-addons-list");
+  try {
+    ADMIN_ADDONS = await api("/api/admin/addons");
+    if (ADMIN_ADDONS.length === 0) {
+      el.innerHTML = '<p class="extensions-empty">No addons found on the server yet.</p>';
+      return;
+    }
+    el.innerHTML = ADMIN_ADDONS.map((a) => {
+      // A toggle is unusable for two different reasons: this addon is
+      // marked can_disable: false (it's meant to always run), or its
+      // manifest's "core" version requirement isn't met by this server
+      // right now (auto-disabled - see enabled_addon_ids() server-side).
+      const toggleDisabled = !a.can_disable || !a.compatible;
+      const toggleLabel = !a.can_disable ? "Always on" : !a.compatible ? "Unavailable" : "Enabled";
+      return `
+      <div class="extension-card">
+        <div class="extension-info">
+          <div class="extension-title">
+            ${a.name} <span class="extension-version">v${a.version}</span>
+            ${!a.can_disable ? '<span class="extension-core-badge">core</span>' : ""}
+          </div>
+          ${a.author ? `<div class="extension-author">by ${a.author}</div>` : ""}
+          ${a.description ? `<div class="extension-desc">${a.description}</div>` : ""}
+          ${!a.compatible ? `<div class="extension-compat-warning">${a.compatibility_note}</div>` : ""}
+        </div>
+        <div class="extension-actions">
+          ${a.configurable ? `<button type="button" class="icon-btn" title="Configure ${a.name}" data-configure-addon="${a.id}">&#9881;</button>` : ""}
+          ${a.can_disable ? `<button type="button" class="icon-btn icon-btn-danger" title="Delete ${a.name}" data-delete-addon="${a.id}">&#128465;</button>` : ""}
+          <label class="toggle-row">
+            <span class="toggle-switch">
+              <input type="checkbox" data-toggle-addon="${a.id}" ${a.enabled ? "checked" : ""} ${toggleDisabled ? "disabled" : ""} />
+              <span class="toggle-track"></span>
+            </span>
+            ${toggleLabel}
+          </label>
+        </div>
+      </div>`;
+    }).join("");
+    $$("[data-toggle-addon]").forEach((input) => {
+      if (input.disabled) return; // always-on or version-incompatible - nothing to wire up
+      input.addEventListener("change", () => onToggleAddon(input.dataset.toggleAddon));
+    });
+    $$("[data-configure-addon]").forEach((btn) => {
+      btn.addEventListener("click", () => openAddonConfigModal(btn.dataset.configureAddon));
+    });
+    $$("[data-delete-addon]").forEach((btn) => {
+      btn.addEventListener("click", () => onDeleteAddon(btn.dataset.deleteAddon));
+    });
+  } catch (err) {
+    el.innerHTML = `<p class="form-error">${err.message}</p>`;
+  }
+}
+
+async function onToggleAddon(addonId) {
+  try {
+    await api(`/api/admin/addons/${addonId}/toggle`, { method: "POST" });
+    await loadAdminAddons();
+  } catch (err) {
+    alert(err.message);
+    await loadAdminAddons(); // snap the checkbox back to the real state
+  }
+}
+
+async function onDeleteAddon(addonId) {
+  const addon = ADMIN_ADDONS.find((a) => a.id === addonId);
+  if (!confirm(`Delete "${addon ? addon.name : addonId}"? This removes its folder from the server and can't be undone.`)) return;
+  try {
+    await api(`/api/admin/addons/${addonId}`, { method: "DELETE" });
+    await loadAdminAddons();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// ---- Addon configuration modal
+//
+// An addon that declares "configurable": true and a "config_entry" script
+// gets a gear button. Clicking it loads that addon's own config script
+// (server/addons/<id>/<config_entry>) into this modal - the script builds
+// whatever form it wants using window.OpenCTFAdmin, set up fresh below
+// before the script loads. See docs/ADDON_DEVELOPMENT.md for the contract.
+function openAddonConfigModal(addonId) {
+  const addon = ADMIN_ADDONS.find((a) => a.id === addonId);
+  $("#addon-config-title").textContent = `Configure ${addon ? addon.name : addonId}`;
+  const container = $("#addon-config-body");
+  container.innerHTML = '<p class="field-note">Loading...</p>';
+  $("#modal-addon-config").classList.remove("hidden");
+
+  // Drop any previous config script instance so state/listeners from a
+  // prior open (of this or a different addon) don't pile up.
+  const oldScript = document.getElementById("addon-config-script");
+  if (oldScript) oldScript.remove();
+
+  window.OpenCTFAdmin = {
+    addonId,
+    async get() {
+      const body = await api(`/api/admin/addons/${addonId}/config`);
+      return body.config;
+    },
+    async save(config) {
+      const body = await api(`/api/admin/addons/${addonId}/config`, {
+        method: "POST",
+        body: JSON.stringify(config),
+      });
+      return body.config;
+    },
+    /** The addon's config script calls this once, with a function that
+     * receives the modal's content container to render into. */
+    mount(renderFn) {
+      renderFn(container);
+    },
+  };
+
+  const script = document.createElement("script");
+  script.id = "addon-config-script";
+  script.src = `${SERVER_URL}/api/addons/${addonId}/config-script`;
+  script.onerror = () => {
+    container.innerHTML = '<p class="form-error">Could not load this addon\u2019s configuration screen.</p>';
+  };
+  document.body.appendChild(script);
+}
+
+// ---- Custom drag-and-drop upload zone wiring (see .upload-dropzone in
+// styles.css). The <input type="file"> is a real, fully transparent
+// element covering the zone - clicking anywhere opens the native picker,
+// and dropping a file onto it uses the browser's own native drop handling
+// for file inputs, so there's no manual DataTransfer plumbing needed here.
+// This just keeps the visible filename chip / Install button in sync with
+// it and adds a drag-hover state.
+function wireUploadDropzone({ zoneId, inputId, filenameId, btnId, resultId, kind }) {
+  const zone = $(`#${zoneId}`);
+  const input = $(`#${inputId}`);
+  const filenameEl = $(`#${filenameId}`);
+  const btn = $(`#${btnId}`);
+  const result = $(`#${resultId}`);
+
+  function syncFromInput() {
+    const file = input.files[0];
+    if (file) {
+      filenameEl.textContent = file.name;
+      filenameEl.classList.remove("hidden");
+      btn.disabled = false;
+    } else {
+      filenameEl.textContent = "";
+      filenameEl.classList.add("hidden");
+      btn.disabled = true;
+    }
+  }
+
+  input.addEventListener("change", syncFromInput);
+
+  let dragEndTimer;
+  zone.addEventListener("dragover", () => {
+    zone.classList.add("drag-active");
+    clearTimeout(dragEndTimer);
+    dragEndTimer = setTimeout(() => zone.classList.remove("drag-active"), 150);
+  });
+  zone.addEventListener("drop", () => {
+    zone.classList.remove("drag-active");
+    setTimeout(syncFromInput, 0); // let the native drop populate input.files first
+  });
+
+  btn.addEventListener("click", async () => {
+    await uploadExtension(kind, input, result);
+    syncFromInput(); // uploadExtension clears input.value on success
+  });
+}
+async function uploadExtension(kind, fileInput, resultEl) {
+  const file = fileInput.files[0];
+  if (!file) {
+    resultEl.textContent = "Choose a .zip file first.";
+    resultEl.className = "form-result err";
+    return;
+  }
+  resultEl.textContent = "Uploading...";
+  resultEl.className = "form-result";
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    const res = await fetch(`${SERVER_URL}/api/admin/${kind}/upload`, {
+      method: "POST",
+      headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {},
+      body: formData,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `upload failed (${res.status})`);
+    resultEl.textContent = `Installed "${body.name || body.id}".`;
+    resultEl.className = "form-result ok";
+    fileInput.value = "";
+    if (kind === "themes") await loadAdminThemes();
+    else await loadAdminAddons();
+  } catch (err) {
+    resultEl.textContent = err.message;
+    resultEl.className = "form-result err";
   }
 }
 

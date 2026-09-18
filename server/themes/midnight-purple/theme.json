@@ -1,0 +1,8 @@
+{
+  "id": "midnight-purple",
+  "name": "Midnight Purple",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "A dark theme with a deep purple accent, in place of the default's amber/navy palette.",
+  "entry": "theme.css"
+}

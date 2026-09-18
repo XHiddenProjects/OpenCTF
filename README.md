@@ -20,6 +20,7 @@ It consists of:
 - Sandboxed web challenges served by a separate target process
 - Optional AI challenges powered by a local Ollama model
 - Admin panel for challenge and user management
+- Server-wide addon and theme system, managed live from the admin panel — configurable addons, instant updates to every open client, and installing via `.zip` upload (see [docs/ADDON_DEVELOPMENT.md](docs/ADDON_DEVELOPMENT.md))
 - User profiles with display name, biography, and avatar
 - Scoreboard, progress tracking, and submission limits
 - Windows, macOS, and Linux Electron builds
@@ -36,7 +37,10 @@ OpenCTF/
 │   ├── target_app.py       Isolated web-challenge server
 │   ├── seed_challenges.py  Starter challenge data
 │   ├── requirements.txt    Python dependencies
+│   ├── addons/             Addons an admin can enable (see docs/ADDON_DEVELOPMENT.md)
+│   ├── themes/             Themes an admin can activate (see docs/ADDON_DEVELOPMENT.md)
 │   └── .env.example        Server configuration template
+├── docs/                   Additional documentation (addon/theme development guide)
 └── README.md
 ```
 
