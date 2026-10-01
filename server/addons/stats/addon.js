@@ -340,6 +340,15 @@
     if (currentContainer && currentContainer.isConnected) refresh(currentContainer);
   });
 
+  window.OpenCTF.on("language:changed", () => {
+    if (!currentContainer || !currentContainer.isConnected) return;
+    const metricGroup = currentContainer.querySelector(".stats-metric-toggle");
+    const chartGroup = currentContainer.querySelector(".stats-chart-type-toggle");
+    if (metricGroup) metricGroup.setAttribute("aria-label", t("addon.stats.metric_group_label", "Metric"));
+    if (chartGroup) chartGroup.setAttribute("aria-label", t("addon.stats.chart_type_group_label", "Chart type"));
+    if (!currentContainer.classList.contains("hidden")) refresh(currentContainer);
+  });
+
   window.OpenCTF.on("ready", loadConfig);
   window.OpenCTF.on("addon:config_changed", ({ id, config }) => {
     if (id !== ADDON_ID) return;

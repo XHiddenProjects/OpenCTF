@@ -9,11 +9,9 @@ const PASSWORD_EYE_OFF_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focus
 
 // ---------------------------------------------------------------------------
 // i18n - language packs are served by the server (GET /api/languages,
-// GET /api/languages/<code>) and managed from Admin -> Languages. Only a
-// representative slice of the UI is wired up today via [data-i18n] /
-// [data-i18n-placeholder] attributes in index.html and t() calls below -
-// see docs/LOCALIZATION.md for the translation-file format and how to
-// extend coverage.
+// GET /api/languages/<code>) and managed from Admin -> Languages. Static
+// labels use data-i18n attributes; generated UI uses t() with a baseline
+// key and English fallback. See docs/LOCALIZATION.md for the format.
 // ---------------------------------------------------------------------------
 let AVAILABLE_LANGUAGES = []; // [{code, name, native_name, key_count, is_builtin}, ...]
 let CURRENT_LANG_CODE = "en";
@@ -47,6 +45,9 @@ function applyTranslations() {
   });
   $$("[data-i18n-title]").forEach((el) => {
     el.title = t(el.dataset.i18nTitle);
+  });
+  $$("[data-i18n-aria-label]").forEach((el) => {
+    el.setAttribute("aria-label", t(el.dataset.i18nAriaLabel));
   });
   document.documentElement.lang = CURRENT_LANG_CODE;
 }
@@ -101,6 +102,14 @@ async function setLanguage(code, { persist = true } = {}) {
   if (persist) localStorage.setItem("octf_lang", code);
   [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => { if (sel) sel.value = CURRENT_LANG_CODE; });
   applyTranslations();
+  $$("[data-toggle-password]").forEach((button) => {
+    const input = $(`#${button.dataset.togglePassword}`);
+    if (input) setPasswordToggle(button, input.type === "text");
+  });
+  if (TOKEN) {
+    renderChallenges();
+    if (!$("#view-scoreboard").classList.contains("hidden")) loadScoreboard();
+  }
   // The Admin panel's stats row, Ollama status line, and the Addons &
   // Themes catalog (name/description/toggle labels) are all built from
   // JS template strings baked with t() at render time, not [data-i18n]
@@ -114,6 +123,10 @@ async function setLanguage(code, { persist = true } = {}) {
     loadAdminThemes();
     loadAdminStats();
     loadOllamaStatus();
+    loadAdminChallenges();
+    loadAdminUsers();
+    loadAdminTeams();
+    loadAdminLanguages();
   }
   octfEmit("language:changed", { code: CURRENT_LANG_CODE });
 }
@@ -876,7 +889,7 @@ function wireEvents() {
     if (window.ctfDevTools) {
       window.ctfDevTools.toggle();
     } else {
-      alert("Use your browser's own DevTools (F12) to inspect the target site.");
+      alert(t("browser.devtools_hint", "Use your browser's own DevTools (F12) to inspect the target site."));
     }
   });
   $("#form-web-address").addEventListener("submit", onTargetAddressSubmit);
@@ -947,7 +960,7 @@ function wireEvents() {
 // ---------------------------------------------------------------------------
 
 function setPasswordToggle(btn, visible) {
-  const label = visible ? "Hide password" : "Show password";
+  const label = visible ? t("common.hide_password", "Hide password") : t("common.show_password", "Show password");
   btn.innerHTML = visible ? PASSWORD_EYE_OFF_ICON : PASSWORD_EYE_ICON;
   btn.setAttribute("aria-label", label);
   btn.title = label;
@@ -1000,7 +1013,7 @@ async function loadRegistrationTeams() {
   const select = $("#reg-team");
   try {
     const teams = await api("/api/teams");
-    const options = ['<option value="">Independent (no team)</option>'];
+    const options = [`<option value="">${t("auth.team_independent", "Independent (no team)")}</option>`];
     teams
       .filter((t) => t.name !== "Independent")
       .forEach((t) => options.push(`<option value="${t.id}">${t.name}</option>`));
@@ -1044,7 +1057,7 @@ async function onAuthed(body) {
   } catch {
     /* non-fatal - sidebar just shows defaults */
   }
-  $("#who-team").textContent = ME.team || "no team";
+  $("#who-team").textContent = ME.team || t("common.no_team", "no team");
   $("#who-user").textContent = ME.display_name || ME.username;
   $("#who-avatar").textContent = ME.avatar || "🛡️";
 
@@ -1078,7 +1091,7 @@ function onLogout() {
 
 async function loadChallenges() {
   const list = $("#challenge-list");
-  list.innerHTML = `<p style="color:var(--text-dim)">Loading…</p>`;
+  list.innerHTML = `<p style="color:var(--text-dim)">${t("common.loading", "Loading...")}</p>`;
   try {
     CHALLENGES = await api("/api/challenges");
     renderChallenges();
@@ -1092,7 +1105,7 @@ function renderChallenges() {
   list.innerHTML = "";
 
   if (CHALLENGES.length === 0) {
-    list.innerHTML = `<p class="empty-state">No challenges yet.</p>`;
+    list.innerHTML = `<p class="empty-state">${t("challenge.none", "No challenges yet.")}</p>`;
     return;
   }
 
@@ -1105,7 +1118,7 @@ function renderChallenges() {
     : CHALLENGES;
 
   if (filtered.length === 0) {
-    list.innerHTML = `<p class="empty-state">No challenges match "${CHALLENGE_SEARCH.trim()}".</p>`;
+    list.innerHTML = `<p class="empty-state">${t("challenge.search_empty", 'No challenges match "{query}".', { query: CHALLENGE_SEARCH.trim() })}</p>`;
     return;
   }
 
@@ -1127,7 +1140,7 @@ function renderChallenges() {
       section.innerHTML = `
         <div class="challenge-section-header">
           <h3 class="challenge-section-title">${category}</h3>
-          <span class="challenge-section-count">${solvedCount}/${items.length} solved</span>
+          <span class="challenge-section-count">${t("challenge.solved_count", "{solved}/{total} solved", { solved: solvedCount, total: items.length })}</span>
         </div>
       `;
       const grid = document.createElement("div");
@@ -1142,10 +1155,10 @@ function buildChallengeCard(c) {
   const card = document.createElement("div");
   card.className = "challenge-card" + (c.solved ? " solved" : "");
   card.innerHTML = `
-    <p class="card-category">${c.category}${c.type === "terminal" ? " · &gt;_ interactive" : c.type === "web" ? " · &lt;/&gt; sandbox" : c.type === "ai" ? " · \u{1F5E3}\uFE0F conversation" : c.type === "quiz" ? " · \u2753 quiz" : ""}</p>
+    <p class="card-category">${c.category}${c.type === "terminal" ? ` · &gt;_ ${t("challenge.type_interactive", "interactive")}` : c.type === "web" ? ` · &lt;/&gt; ${t("challenge.type_sandbox", "sandbox")}` : c.type === "ai" ? ` · \u{1F5E3}\uFE0F ${t("challenge.type_conversation", "conversation")}` : c.type === "quiz" ? ` · \u2753 ${t("challenge.type_quiz", "quiz")}` : ""}</p>
     <p class="card-title">${c.title}</p>
-    <p class="card-points">${c.points} pts</p>
-    ${c.solved ? `<p class="card-solved-tag">✓ solved</p>` : ""}
+    <p class="card-points">${t("challenge.points_short", "{points} pts", { points: c.points })}</p>
+    ${c.solved ? `<p class="card-solved-tag">✓ ${t("challenge.solved", "solved")}</p>` : ""}
   `;
   card.addEventListener("click", () => openChallenge(c));
   return card;
@@ -1175,8 +1188,7 @@ function openChallenge(c) {
   $("#modal-category").textContent = c.category;
   $("#modal-title").textContent = c.title;
   $("#modal-desc").textContent = c.description;
-  $("#modal-meta").textContent = `${c.difficulty || "medium"} difficulty`;
-    $("#modal-meta").textContent = `${c.difficulty || "medium"} difficulty`;
+  $("#modal-meta").textContent = t("challenge.difficulty_format", "{difficulty} difficulty", { difficulty: t(`challenge.difficulty_${c.difficulty || "medium"}`, c.difficulty || "medium") });
   $("#modal-rules-wrap").classList.toggle("hidden", !c.rules);
   $("#modal-rules").textContent = c.rules || "";
   $("#modal-result").textContent = "";
@@ -1199,8 +1211,8 @@ function openAiChallenge(c) {
   AI_MESSAGES = [];
   $("#ai-category").textContent = c.category;
   $("#ai-title").textContent = c.title;
-  $("#ai-points").textContent = `${c.points} points`;
-    $("#ai-status").textContent = `${c.difficulty || "medium"} conversation`;
+  $("#ai-points").textContent = t("challenge.points_format", "{points} points", { points: c.points });
+  $("#ai-status").textContent = t("challenge.conversation_format", "{difficulty} conversation", { difficulty: t(`challenge.difficulty_${c.difficulty || "medium"}`, c.difficulty || "medium") });
   $("#ai-result").textContent = c.description;
   $("#ai-result").className = "modal-result";
   $("#ai-input").value = "";
@@ -1214,8 +1226,8 @@ function openAiChallenge(c) {
 function renderAiTranscript() {
   const transcript = $("#ai-transcript");
   transcript.innerHTML = AI_MESSAGES.length
-    ? AI_MESSAGES.map((message) => `<div class="ai-message ${message.role}"><span>${message.role === "user" ? "You" : "Persona"}</span><p>${escapeHtml(message.content)}</p></div>`).join("")
-    : `<p class="ai-empty">The persona is waiting. Try a convincing request, not just a demand.</p>`;
+    ? AI_MESSAGES.map((message) => `<div class="ai-message ${message.role}"><span>${message.role === "user" ? t("ai.you", "You") : t("ai.persona", "Persona")}</span><p>${escapeHtml(message.content)}</p></div>`).join("")
+    : `<p class="ai-empty">${t("ai.waiting", "The persona is waiting. Try a convincing request, not just a demand.")}</p>`;
   transcript.scrollTop = transcript.scrollHeight;
 }
 
@@ -1231,7 +1243,7 @@ async function onAiChatSubmit(event) {
   AI_MESSAGES.push({ role: "user", content });
   input.value = "";
   renderAiTranscript();
-  $("#ai-result").textContent = "The persona is thinking...";
+  $("#ai-result").textContent = t("ai.thinking", "The persona is thinking...");
   try {
     const body = await api(`/api/challenges/${AI_CHALLENGE.id}/ai`, {
       method: "POST",
@@ -1259,12 +1271,12 @@ async function onAiChatSubmit(event) {
       window.speechSynthesis.speak(speech);
     }
       if (body.solved && body.flag) {
-        $("#ai-result").textContent = `The persona disclosed your team's flag and encoded ID: ${body.flag}`;
+        $("#ai-result").textContent = t("ai.flag_disclosed", "The persona disclosed your team's flag and encoded ID: {flag}", { flag: body.flag });
       $("#ai-result").className = "modal-result ok";
         $("#ai-flag-input").value = "";
         $("#form-submit-flag-ai").classList.remove("hidden");
     } else {
-      $("#ai-result").textContent = "Keep working the conversation.";
+      $("#ai-result").textContent = t("ai.keep_working", "Keep working the conversation.");
     }
   } catch (err) {
     $("#ai-result").textContent = err.message;
@@ -1283,7 +1295,7 @@ async function onSubmitFlagAi(event) {
         flag: $("#ai-flag-input").value,
       }),
     });
-    result.textContent = body.correct ? "Correct! Challenge solved." : "Incorrect flag.";
+    result.textContent = body.correct ? t("challenge.solved_success", "Correct! Challenge solved.") : t("challenge.incorrect_flag", "Incorrect flag.");
     result.className = `modal-result ${body.correct ? "ok" : "err"}`;
     if (body.correct) await loadChallenges();
     notifySolve(AI_CHALLENGE, body);
@@ -1296,7 +1308,7 @@ async function onSubmitFlagAi(event) {
 function startAiSpeechInput() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) {
-    $("#ai-result").textContent = "Speech input is not available here. Type your message instead.";
+    $("#ai-result").textContent = t("ai.speech_unavailable", "Speech input is not available here. Type your message instead.");
     $("#ai-result").className = "modal-result err";
     return;
   }
@@ -1309,7 +1321,7 @@ function startAiSpeechInput() {
     $("#ai-input").focus();
   };
   AI_RECOGNITION.onerror = () => {
-    $("#ai-result").textContent = "Microphone input was unavailable. Type your message instead.";
+    $("#ai-result").textContent = t("ai.microphone_unavailable", "Microphone input was unavailable. Type your message instead.");
   };
   AI_RECOGNITION.start();
 }
@@ -1320,7 +1332,7 @@ function openQuizChallenge(c) {
   QUIZ_CHALLENGE = c;
   $("#quiz-category").textContent = c.category;
   $("#quiz-title").textContent = c.title;
-  $("#quiz-points").textContent = `${c.points} points`;
+  $("#quiz-points").textContent = t("challenge.points_format", "{points} points", { points: c.points });
   $("#quiz-desc").textContent = c.description;
   const hintWrap = $("#quiz-hint-wrap");
   if (c.hint) {
@@ -1332,7 +1344,7 @@ function openQuizChallenge(c) {
   $("#quiz-question").textContent = c.quiz_question || "";
   $("#quiz-flag-input").value = "";
   $("#form-submit-flag-quiz").classList.add("hidden");
-  $("#quiz-result").textContent = c.solved ? "Already solved by your team." : "";
+  $("#quiz-result").textContent = c.solved ? t("challenge.already_solved", "Already solved by your team.") : "";
   $("#quiz-result").className = c.solved ? "modal-result ok" : "modal-result";
 
   const optionsWrap = $("#quiz-options");
@@ -1354,7 +1366,7 @@ async function onQuizOptionPicked(selectedIndex, optionsWrap) {
   const buttons = Array.from(optionsWrap.children);
   buttons.forEach((btn) => (btn.disabled = true));
   const result = $("#quiz-result");
-  result.textContent = "Checking...";
+  result.textContent = t("common.checking", "Checking...");
   result.className = "modal-result";
   try {
     const body = await api(`/api/challenges/${QUIZ_CHALLENGE.id}/quiz`, {
@@ -1363,12 +1375,12 @@ async function onQuizOptionPicked(selectedIndex, optionsWrap) {
     });
     buttons[selectedIndex].classList.add(body.correct ? "correct" : "incorrect");
     if (body.correct && body.flag) {
-      result.textContent = "Correct! Submit the flag below to score it.";
+      result.textContent = t("quiz.correct_reveal", "Correct! Submit the flag below to score it.");
       result.className = "modal-result ok";
       $("#quiz-flag-input").value = body.flag;
       $("#form-submit-flag-quiz").classList.remove("hidden");
     } else {
-      result.textContent = "Not quite - take another look and try again.";
+      result.textContent = t("quiz.incorrect_retry", "Not quite - take another look and try again.");
       result.className = "modal-result err";
       buttons.forEach((btn) => (btn.disabled = false));
     }
@@ -1390,7 +1402,7 @@ async function onSubmitFlagQuiz(event) {
         flag: $("#quiz-flag-input").value,
       }),
     });
-    result.textContent = body.correct ? "Correct! Challenge solved." : "Incorrect flag.";
+    result.textContent = body.correct ? t("challenge.solved_success", "Correct! Challenge solved.") : t("challenge.incorrect_flag", "Incorrect flag.");
     result.className = `modal-result ${body.correct ? "ok" : "err"}`;
     if (body.correct) await loadChallenges();
     notifySolve(QUIZ_CHALLENGE, body);
@@ -1412,11 +1424,11 @@ async function onSubmitFlag(e) {
       }),
     });
     if (body.correct) {
-      result.textContent = "Correct! Challenge solved.";
+      result.textContent = t("challenge.solved_success", "Correct! Challenge solved.");
       result.className = "modal-result ok";
       await loadChallenges();
     } else {
-      result.textContent = "Incorrect flag, try again.";
+      result.textContent = t("challenge.incorrect_retry", "Incorrect flag, try again.");
       result.className = "modal-result err";
     }
     notifySolve(ACTIVE_CHALLENGE, body);
@@ -1438,8 +1450,8 @@ async function openWebChallenge(c) {
   $("#modal-category").textContent = c.category;
   $("#modal-title").textContent = c.title;
   $("#modal-desc").textContent = c.description;
-  $("#modal-meta").textContent = `${c.difficulty || "medium"} difficulty`;
-  $("#modal-points").textContent = `${c.points} points`;
+  $("#modal-meta").textContent = t("challenge.difficulty_format", "{difficulty} difficulty", { difficulty: t(`challenge.difficulty_${c.difficulty || "medium"}`, c.difficulty || "medium") });
+  $("#modal-points").textContent = t("challenge.points_format", "{points} points", { points: c.points });
   $("#modal-rules-wrap").classList.toggle("hidden", !c.rules);
   $("#modal-rules").textContent = c.rules || "";
   $("#web-tabs").classList.remove("hidden");
@@ -1513,7 +1525,7 @@ function navigateTargetPath(path) {
 
 async function loadScoreboard() {
   const body = $("#score-body");
-  body.innerHTML = `<tr><td colspan="4" style="color:var(--text-dim)">Loading…</td></tr>`;
+  body.innerHTML = `<tr><td colspan="4" style="color:var(--text-dim)">${t("common.loading", "Loading...")}</td></tr>`;
   try {
     const rows = await api("/api/scoreboard");
     body.innerHTML = rows
@@ -1540,13 +1552,13 @@ async function onSaveSettings() {
   const url = $("#settings-url").value.trim().replace(/\/$/, "");
   const status = $("#settings-status");
   if (!url) {
-    status.textContent = "Enter a server URL.";
+    status.textContent = t("settings.url_required", "Enter a server URL.");
     status.className = "modal-result err";
     return;
   }
   const config = await window.ctfConfig.set({ serverUrl: url });
   SERVER_URL = config.serverUrl;
-  status.textContent = "Saved.";
+  status.textContent = t("common.saved", "Saved.");
   status.className = "modal-result ok";
 }
 
@@ -1560,7 +1572,7 @@ function openTerminalChallenge(c) {
 
   $("#terminal-category").textContent = c.category;
   $("#terminal-title").textContent = c.title;
-  $("#terminal-points").textContent = `${c.points} points`;
+  $("#terminal-points").textContent = t("challenge.points_format", "{points} points", { points: c.points });
   $("#terminal-result").textContent = "";
   $("#terminal-result").className = "modal-result";
   $("#terminal-flag-input").value = "";
@@ -1577,7 +1589,7 @@ function openTerminalChallenge(c) {
   const out = $("#terminal-output");
   out.innerHTML = "";
   appendTerminalLine(
-    `Connected. Type 'help' for a list of commands.\n${c.description}`,
+    `${t("terminal.connected", "Connected. Type 'help' for a list of commands.")}\n${c.description}`,
     "info"
   );
 
@@ -1630,11 +1642,11 @@ async function onSubmitFlagTerminal(e) {
       }),
     });
     if (body.correct) {
-      result.textContent = "Correct! Challenge solved.";
+      result.textContent = t("challenge.solved_success", "Correct! Challenge solved.");
       result.className = "modal-result ok";
       await loadChallenges();
     } else {
-      result.textContent = "Incorrect flag, try again.";
+      result.textContent = t("challenge.incorrect_retry", "Incorrect flag, try again.");
       result.className = "modal-result err";
     }
     notifySolve(TERMINAL_CHALLENGE, body);
@@ -1676,7 +1688,7 @@ async function onSaveProfile(e) {
     ME = { ...ME, ...profile };
     $("#who-user").textContent = ME.display_name || ME.username;
     $("#who-avatar").textContent = ME.avatar || "🛡️";
-    result.textContent = "Saved.";
+    result.textContent = t("common.saved", "Saved.");
     result.className = "form-result ok";
   } catch (err) {
     result.textContent = err.message;
@@ -1685,11 +1697,11 @@ async function onSaveProfile(e) {
 }
 
 async function onResetProgress() {
-  if (!confirm("Reset your team's solve and attempt history? This cannot be undone.")) return;
+  if (!confirm(t("profile.confirm_reset", "Reset your team's solve and attempt history? This cannot be undone."))) return;
   const result = $("#reset-result");
   try {
     await api("/api/me/reset-progress", { method: "POST" });
-    result.textContent = "Progress reset.";
+    result.textContent = t("profile.progress_reset", "Progress reset.");
     result.className = "form-result ok";
     await loadChallenges();
   } catch (err) {
@@ -1709,7 +1721,7 @@ async function onChangePassword(e) {
         new_password: $("#pw-new").value,
       }),
     });
-    result.textContent = "Password updated.";
+    result.textContent = t("profile.password_updated", "Password updated.");
     result.className = "form-result ok";
     $("#pw-current").value = "";
     $("#pw-new").value = "";
@@ -1762,7 +1774,9 @@ async function loadOllamaStatus() {
 function populateAiModelDropdown(serverDefault) {
   const select = $("#cf-ai-model");
   const previousValue = select.value;
-  const defaultLabel = serverDefault ? `Use server default (${serverDefault})` : "Use server default";
+  const defaultLabel = serverDefault
+    ? t("admin.use_server_default_model", "Use server default ({model})", { model: serverDefault })
+    : t("admin.use_server_default", "Use server default");
   const options = [`<option value="">${defaultLabel}</option>`];
   OLLAMA_MODELS.forEach((name) => {
     options.push(`<option value="${name}">${name}</option>`);
@@ -1775,9 +1789,9 @@ function populateAiModelDropdown(serverDefault) {
   }
   const note = $("#cf-ai-model-note");
   if (OLLAMA_MODELS.length === 0) {
-    note.textContent = "No models detected - is Ollama running? Falling back to the server default either way.";
+    note.textContent = t("admin.no_models_detected", "No models detected - is Ollama running? Falling back to the server default either way.");
   } else {
-    note.textContent = `${OLLAMA_MODELS.length} model(s) currently installed on this Ollama instance.`;
+    note.textContent = t("admin.models_installed", "{count} model(s) currently installed on this Ollama instance.", { count: OLLAMA_MODELS.length });
   }
 }
 
@@ -1817,8 +1831,8 @@ async function loadAdminChallenges() {
         <td>${c.category}</td>
         <td>${c.type}</td>
         <td>${c.points}</td>
-        <td>${c.is_active ? '<span class="tag-active">active</span>' : '<span class="tag-inactive">hidden</span>'}</td>
-        <td><button class="row-action-btn" data-edit-id="${c.id}">Edit</button></td>
+        <td>${c.is_active ? `<span class="tag-active">${t("common.active", "active")}</span>` : `<span class="tag-inactive">${t("common.hidden", "hidden")}</span>`}</td>
+        <td><button class="row-action-btn" data-edit-id="${c.id}">${t("common.edit", "Edit")}</button></td>
       </tr>`
     ).join("");
     $$("[data-edit-id]").forEach((btn) => {
@@ -1838,7 +1852,7 @@ async function loadAdminUsers() {
     ADMIN_USERS = await api("/api/admin/users");
     body.innerHTML = ADMIN_USERS.map((u) => {
       const teamOptions = [
-        `<option value="__individual__" ${u.team_is_individual ? "selected" : ""}>Independent (solo)</option>`,
+        `<option value="__individual__" ${u.team_is_individual ? "selected" : ""}>${t("admin.independent_solo", "Independent (solo)")}</option>`,
         ...ADMIN_TEAMS.map(
           (t) => `<option value="${t.id}" ${!u.team_is_individual && t.name === u.team ? "selected" : ""}>${t.name}</option>`
         ),
@@ -1848,11 +1862,11 @@ async function loadAdminUsers() {
         <td>${u.username}</td>
         <td>${u.display_name}</td>
         <td><select class="row-select" data-move-user="${u.id}">${teamOptions}</select></td>
-        <td>${u.is_admin ? '<span class="tag-active">yes</span>' : '<span class="tag-inactive">no</span>'}</td>
+        <td>${u.is_admin ? `<span class="tag-active">${t("common.yes", "yes")}</span>` : `<span class="tag-inactive">${t("common.no", "no")}</span>`}</td>
         <td>${
           u.username === ME.username
             ? ""
-            : `<button class="row-action-btn" data-toggle-admin="${u.id}">${u.is_admin ? "Revoke admin" : "Make admin"}</button>`
+            : `<button class="row-action-btn" data-toggle-admin="${u.id}">${u.is_admin ? t("admin.revoke_admin", "Revoke admin") : t("admin.make_admin", "Make admin")}</button>`
         }</td>
       </tr>`;
     }).join("");
@@ -1895,16 +1909,16 @@ async function loadAdminTeams() {
   const body = $("#admin-teams-body");
   try {
     ADMIN_TEAMS = await api("/api/admin/teams");
-    body.innerHTML = ADMIN_TEAMS.map((t) => {
+    body.innerHTML = ADMIN_TEAMS.map((team) => {
       let action;
-      if (t.is_default) {
-        action = '<span class="field-note">default team</span>';
-      } else if (t.member_count > 0) {
-        action = '<span class="field-note">move members out to delete</span>';
+      if (team.is_default) {
+        action = `<span class="field-note">${t("admin.default_team", "default team")}</span>`;
+      } else if (team.member_count > 0) {
+        action = `<span class="field-note">${t("admin.move_members_to_delete", "move members out to delete")}</span>`;
       } else {
-        action = `<button class="row-action-btn" data-delete-team="${t.id}">Delete</button>`;
+        action = `<button class="row-action-btn" data-delete-team="${team.id}">${t("common.delete", "Delete")}</button>`;
       }
-      return `<tr><td>${t.name}</td><td>${t.member_count}</td><td>${action}</td></tr>`;
+      return `<tr><td>${team.name}</td><td>${team.member_count}</td><td>${action}</td></tr>`;
     }).join("");
     $$("[data-delete-team]").forEach((btn) => {
       btn.addEventListener("click", () => onDeleteTeam(Number(btn.dataset.deleteTeam)));
@@ -2078,9 +2092,9 @@ async function loadAdminLanguages() {
     body.innerHTML = langs.map((l) => `
       <tr>
         <td>${l.native_name}${l.name !== l.native_name ? ` <span class="extension-author">(${l.name})</span>` : ""}</td>
-        <td><code>${l.code}</code>${l.is_builtin ? ' <span class="extension-core-badge">built-in</span>' : ""}</td>
+        <td><code>${l.code}</code>${l.is_builtin ? ` <span class="extension-core-badge">${t("admin.built_in", "built-in")}</span>` : ""}</td>
         <td>${l.key_count}</td>
-        <td>${l.is_builtin ? "" : `<button type="button" class="icon-btn icon-btn-danger" title="Delete ${l.native_name}" data-delete-language="${l.code}">&#128465;</button>`}</td>
+        <td>${l.is_builtin ? "" : `<button type="button" class="icon-btn icon-btn-danger" title="${t("admin.delete_language_tooltip", "Delete {name}", { name: l.native_name })}" data-delete-language="${l.code}">&#128465;</button>`}</td>
       </tr>`).join("");
     $$("[data-delete-language]").forEach((btn) => {
       btn.addEventListener("click", () => onDeleteLanguage(btn.dataset.deleteLanguage));
@@ -2091,7 +2105,7 @@ async function loadAdminLanguages() {
 }
 
 async function onDeleteLanguage(code) {
-  if (!confirm(`Delete the "${code}" language pack? Anyone using it falls back to English.`)) return;
+  if (!confirm(t("admin.confirm_delete_language", 'Delete the "{code}" language pack? Anyone using it falls back to English.', { code }))) return;
   try {
     await api(`/api/admin/languages/${encodeURIComponent(code)}`, { method: "DELETE" });
     await loadAdminLanguages();
@@ -2119,11 +2133,11 @@ async function onUploadLanguage() {
   const result = $("#language-upload-result");
   const file = fileInput.files[0];
   if (!file) {
-    result.textContent = "Choose a .json file first.";
+    result.textContent = t("admin.choose_json_first", "Choose a .json file first.");
     result.className = "form-result err";
     return;
   }
-  result.textContent = "Uploading...";
+  result.textContent = t("common.uploading", "Uploading...");
   result.className = "form-result";
   const formData = new FormData();
   formData.append("file", file);
@@ -2138,7 +2152,7 @@ async function onUploadLanguage() {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `upload failed (${res.status})`);
-    result.textContent = `Saved "${body.native_name}" (${body.key_count} translated strings).`;
+    result.textContent = t("admin.language_saved", 'Saved "{name}" ({count} translated strings).', { name: body.native_name, count: body.key_count });
     result.className = "form-result ok";
     $("#form-language-upload").reset();
     $("#language-upload-filename").classList.add("hidden");
@@ -2190,7 +2204,7 @@ function openAddonConfigModal(addonId) {
   const displayName = addon ? t(`addon.${addon.id}.meta.name`, addon.name) : addonId;
   $("#addon-config-title").textContent = t("admin.configure_tooltip", "Configure {name}", { name: displayName });
   const container = $("#addon-config-body");
-  container.innerHTML = '<p class="field-note">Loading...</p>';
+  container.innerHTML = `<p class="field-note">${t("common.loading", "Loading...")}</p>`;
   $("#modal-addon-config").classList.remove("hidden");
 
   // Drop any previous config script instance so state/listeners from a
@@ -2222,7 +2236,7 @@ function openAddonConfigModal(addonId) {
   script.id = "addon-config-script";
   script.src = `${SERVER_URL}/api/addons/${addonId}/config-script`;
   script.onerror = () => {
-    container.innerHTML = '<p class="form-error">Could not load this addon\u2019s configuration screen.</p>';
+    container.innerHTML = `<p class="form-error">${t("admin.addon_config_load_error", "Could not load this addon's configuration screen.")}</p>`;
   };
   document.body.appendChild(script);
 }
@@ -2309,11 +2323,11 @@ function wireUploadDropzone({ zoneId, inputId, filenameId, btnId, resultId, kind
 async function uploadExtension(kind, fileInput, resultEl) {
   const file = fileInput.files[0];
   if (!file) {
-    resultEl.textContent = "Choose a .zip file first.";
+    resultEl.textContent = t("admin.choose_zip_first", "Choose a .zip file first.");
     resultEl.className = "form-result err";
     return;
   }
-  resultEl.textContent = "Uploading...";
+  resultEl.textContent = t("common.uploading", "Uploading...");
   resultEl.className = "form-result";
   const formData = new FormData();
   formData.append("file", file);
@@ -2325,7 +2339,7 @@ async function uploadExtension(kind, fileInput, resultEl) {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `upload failed (${res.status})`);
-    resultEl.textContent = `Installed "${body.name || body.id}".`;
+    resultEl.textContent = t("admin.extension_installed", 'Installed "{name}".', { name: body.name || body.id });
     resultEl.className = "form-result ok";
     fileInput.value = "";
     if (kind === "themes") await loadAdminThemes();
@@ -2358,7 +2372,7 @@ async function onCreateTeam(e) {
 }
 
 async function onDeleteTeam(teamId) {
-  if (!confirm("Delete this team? This can't be undone.")) return;
+  if (!confirm(t("admin.confirm_delete_team", "Delete this team? This can't be undone."))) return;
   try {
     await api(`/api/admin/teams/${teamId}`, { method: "DELETE" });
     await loadAdminTeams();
@@ -2372,7 +2386,7 @@ function updateFlagPreview() {
   const preview = flagPreviewFor($("#cf-flag").value);
   const el = $("#cf-flag-preview");
   if (preview) {
-    el.textContent = `Will save as: ${preview}`;
+    el.textContent = t("builder.flag_preview", "Will save as: {flag}", { flag: preview });
     el.classList.remove("hidden");
   } else {
     el.textContent = "";
@@ -2400,7 +2414,7 @@ function onGenerateFlag() {
 
 function openChallengeForm(c) {
   EDITING_CHALLENGE_ID = c ? c.id : null;
-  $("#challenge-form-title").textContent = c ? "Edit challenge" : "New challenge";
+  $("#challenge-form-title").textContent = c ? t("admin.edit_challenge", "Edit challenge") : t("admin.new_challenge", "New challenge");
   $("#cf-id").value = c ? c.id : "";
   $("#cf-title").value = c ? c.title : "";
   $("#cf-category").value = c ? c.category : "";
@@ -2434,7 +2448,7 @@ function openChallengeForm(c) {
     // of silently reverting to the server default.
     const opt = document.createElement("option");
     opt.value = aiConfig.model;
-    opt.textContent = `${aiConfig.model} (not currently installed)`;
+    opt.textContent = t("admin.model_not_installed", "{model} (not currently installed)", { model: aiConfig.model });
     $("#cf-ai-model").appendChild(opt);
     $("#cf-ai-model").value = aiConfig.model;
   }
@@ -2455,11 +2469,13 @@ function openChallengeForm(c) {
   [0, 1, 2, 3].forEach((i) => { $(`#cf-quiz-opt-${i}`).value = quizOptions[i] || ""; });
   $("#cf-quiz-correct").value = quizConfig.correct_index ?? 0;
   $("#cf-flag").value = "";
-  $("#cf-flag").placeholder = c ? "leave blank to keep existing flag" : "e.g. a memorable phrase - not the flag itself";
+  $("#cf-flag").placeholder = c
+    ? t("builder.flag_keep_placeholder", "leave blank to keep existing flag")
+    : t("builder.flag_placeholder", "e.g. a memorable phrase - not the flag itself");
   $("#cf-flag-preview").textContent = "";
   $("#cf-flag-preview").classList.add("hidden");
   if (c && c.flag) {
-    $("#cf-flag-current").textContent = `Current flag: ${c.flag}`;
+    $("#cf-flag-current").textContent = t("builder.current_flag", "Current flag: {flag}", { flag: c.flag });
     $("#cf-flag-current").classList.remove("hidden");
   } else {
     $("#cf-flag-current").textContent = "";
@@ -2614,7 +2630,7 @@ async function onSaveChallenge(e) {
         body: JSON.stringify(payload),
       });
     } else {
-      if (!flag) throw new Error("flag is required for a new challenge");
+      if (!flag) throw new Error(t("builder.flag_required", "Flag is required for a new challenge."));
       saved = await api("/api/admin/challenges", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -2623,17 +2639,17 @@ async function onSaveChallenge(e) {
       // instead of creating duplicates.
       EDITING_CHALLENGE_ID = saved.id;
       $("#cf-id").value = saved.id;
-      $("#challenge-form-title").textContent = "Edit challenge";
+      $("#challenge-form-title").textContent = t("admin.edit_challenge", "Edit challenge");
       $("#cf-delete").classList.remove("hidden");
     }
     $("#cf-flag").value = "";
     $("#cf-flag-preview").textContent = "";
     $("#cf-flag-preview").classList.add("hidden");
     if (saved.flag) {
-      $("#cf-flag-current").textContent = `Current flag: ${saved.flag} - copy this into the challenge content (description, terminal files, etc.) wherever players need to find it.`;
+      $("#cf-flag-current").textContent = t("builder.flag_saved_note", "Current flag: {flag} - copy this into the challenge content (description, terminal files, etc.) wherever players need to find it.", { flag: saved.flag });
       $("#cf-flag-current").classList.remove("hidden");
     }
-    result.textContent = "Saved.";
+    result.textContent = t("common.saved", "Saved.");
     result.className = "form-result ok";
     await loadAdminChallenges();
     await loadAdminStats();
@@ -2645,7 +2661,7 @@ async function onSaveChallenge(e) {
 
 async function onDeleteChallenge() {
   if (!EDITING_CHALLENGE_ID) return;
-  if (!confirm("Delete this challenge? This also removes its submission history.")) return;
+  if (!confirm(t("builder.confirm_delete", "Delete this challenge? This also removes its submission history."))) return;
   try {
     await api(`/api/admin/challenges/${EDITING_CHALLENGE_ID}`, { method: "DELETE" });
     $("#modal-challenge-form").classList.add("hidden");

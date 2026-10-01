@@ -75,6 +75,9 @@
     render();
   });
   window.OpenCTF.on("auth:logout", removeBanner);
+  window.OpenCTF.on("language:changed", () => {
+    if (window.OpenCTF.getUser()) render();
+  });
 
   // Live updates: an admin editing the message/color from the gear button
   // reaches every open client immediately, without anyone refreshing.

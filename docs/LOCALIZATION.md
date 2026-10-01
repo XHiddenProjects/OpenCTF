@@ -183,24 +183,30 @@ system as the rest of the admin panel.
 
 ## Current UI coverage
 
-Only a representative slice of the interface is wired up to translation
-keys today: the login/register screen, the main sidebar nav, the admin
-tab bar, and the most common challenge/scoreboard/profile labels. The
-rest of the app (challenge descriptions and answers themselves, most
-modal/admin-form copy, toasts) is still English-only text baked into
-`client/src/index.html` and `client/src/renderer.js`.
+The built-in player and admin interface uses translation keys throughout
+its static markup and generated views, including challenge cards and
+modals, profile forms, the challenge builder, admin tables, upload flows,
+and feedback messages. The shipped core packs (English, Spanish, French,
+and German) are kept at full key parity. Existing installations receive
+new English baseline keys and missing example-pack translations at startup;
+admin-edited translations already present are preserved.
 
-This is deliberate scope, not a limitation of the system - the
-translation infrastructure (server storage, upload/validation, live
-updates, the client-side `t()` / `applyTranslations()` engine) is
-complete and covers every key it's given. Extending coverage is
-incremental, plain HTML/JS work:
+Every shipped addon and theme also owns its catalog and UI strings in its
+own `lang/` folder. Addons with generated views refresh their translated
+labels on a `"language:changed"` event; static addon markup can use
+`data-i18n` attributes and the host applies them automatically. Theme
+translations cover their catalog metadata, since themes themselves are
+otherwise CSS-only. Challenge-authored titles, descriptions, answers, hints,
+and rules remain content rather than UI and are intentionally not
+translated. Server/API error messages are also displayed as returned.
+
+To extend localization with new UI text:
 
 1. **Static text** - add `data-i18n="your.key"` to the element in
    `client/src/index.html` (or `data-i18n-placeholder="your.key"` for an
-   `<input placeholder>`, or `data-i18n-title="your.key"` for a `title`
-   tooltip). `applyTranslations()` picks it up automatically on every
-   language change; no other wiring needed.
+  `<input placeholder>`, `data-i18n-title="your.key"` for a `title`
+  tooltip, or `data-i18n-aria-label="your.key"` for an accessible label).
+  `applyTranslations()` picks it up automatically on every language change.
 2. **Text built dynamically in JavaScript** (challenge cards, toasts,
    `confirm()` dialogs, etc.) - wrap it with `t("your.key", "English
    fallback")` in `client/src/renderer.js` instead of a plain string

@@ -3,6 +3,19 @@
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 Versions apply to the platform as a whole (client + server move together).
 
+## 1.2.1
+
+### Fixed
+
+- Completed localization coverage across the player interface, admin screens,
+  challenge builder, and generated challenge feedback in the shipped English,
+  Spanish, French, and German packs. Existing language-pack customizations are
+  preserved while new built-in translation keys are added during startup.
+- Completed translations for shipped addon and theme catalog text, filled the
+  missing code-challenge strings, and localized the certifications addon UI.
+  Translated addon views now refresh their generated text when the active
+  language changes.
+
 ## 1.2.0
 
 ### Added

@@ -14,6 +14,8 @@
   "addon.code-challenge.define_error": "No se pudo ejecutar tu código: {error}",
   "addon.code-challenge.expected_label": "esperado",
   "addon.code-challenge.actual_label": "obtenido",
+  "addon.code-challenge.language_label": "Idioma",
+  "addon.code-challenge.console_server_run": "(ejecución en el servidor; no hay salida de consola local)",
   "addon.code-challenge.meta.name": "Editor de retos de código",
   "addon.code-challenge.meta.description": "Añade un editor para retos de JavaScript, Python, PHP, Ruby, C, C++ y Java. Judge0 comprueba todas las pruebas y el flag solo se muestra cuando se superan todas.",
   "addon.code-challenge.config.font_size_label": "Tamaño de fuente del editor (px)"

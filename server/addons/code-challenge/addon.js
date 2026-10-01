@@ -731,6 +731,9 @@
     refreshChallengesCache();
     watchModal();
   });
+  window.OpenCTF.on("language:changed", () => {
+    if (activeTask) onModalShown();
+  });
   window.OpenCTF.on("addon:config_changed", ({ id, config }) => {
     if (id !== ADDON_ID) return;
     CONFIG = { ...FALLBACK_CONFIG, ...config };

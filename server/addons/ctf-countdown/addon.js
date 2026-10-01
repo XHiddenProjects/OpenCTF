@@ -13,6 +13,8 @@
   const t = window.OpenCTF.t;
 
   let intervalId = null;
+  let currentContainer = null;
+  let currentConfig = null;
 
   // This addon is installed as a standalone upload, so it can't rely on
   // anything in the host app's own styles.css - it has to bring
@@ -37,6 +39,8 @@
   document.head.appendChild(style);
 
   function renderCountdown(container, config) {
+    currentContainer = container;
+    currentConfig = config;
     const endTime = config.end_time ? new Date(config.end_time) : null;
     const title = config.title || t("addon.ctf-countdown.default_title", "CTF Countdown");
 
@@ -95,11 +99,19 @@
       container.innerHTML = `<p class="field-note">${t("common.loading_config", "Loading current config...")}</p>`;
       try {
         const config = await window.OpenCTF.getAddonConfig(ADDON_ID);
+        currentContainer = container;
+        currentConfig = config;
         renderCountdown(container, config);
       } catch (err) {
         container.innerHTML = `<p class="form-error">${err.message}</p>`;
       }
     },
+  });
+
+  window.OpenCTF.on("language:changed", () => {
+    if (currentContainer && currentConfig && !currentContainer.classList.contains("hidden")) {
+      renderCountdown(currentContainer, currentConfig);
+    }
   });
 
   // Stop the ticking interval once this addon is disabled, so it isn't
