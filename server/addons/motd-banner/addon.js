@@ -40,7 +40,7 @@
 
     const close = document.createElement("button");
     close.textContent = "\u00d7";
-    close.setAttribute("aria-label", "Dismiss");
+    close.setAttribute("aria-label", window.OpenCTF.t("addon.motd-banner.dismiss", "Dismiss"));
     close.style.cssText = "background:none;border:none;color:inherit;font-size:16px;cursor:pointer;line-height:1;";
     close.addEventListener("click", () => {
       bar.remove();

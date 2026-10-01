@@ -1,0 +1,14 @@
+{
+  "addon.core.live_connected_title": "Live-Updates verbunden",
+  "addon.core.live_disconnected_title": "Live-Updates getrennt - wird erneut verbunden...",
+  "addon.core.live_connected": "Live-Updates",
+  "addon.core.live_reconnecting": "Verbindung wird wiederhergestellt...",
+  "addon.core.solved_toast": "„{title}“ für {points} Punkte gelöst!",
+  "addon.core.theme_updated": "Das Website-Theme wurde gerade von einer Administratorin/einem Administrator aktualisiert.",
+  "addon.core.addon_enabled": "Add-on aktiviert: {name}",
+  "addon.core.addon_disabled": "Add-on deaktiviert: {name}",
+  "addon.core.meta.name": "Core Toolkit",
+  "addon.core.meta.description": "Integrierte Funktionalität, auf die der Rest der Plattform angewiesen ist: Lösungs-Toasts, eine Live-Verbindungsanzeige und das sofortige Anwenden von Theme-/Add-on-Änderungen durch einen Admin. Immer aktiv.",
+  "addon.core.config.toasts_label": "Toast-Benachrichtigung bei Lösung",
+  "addon.core.config.dot_label": "Live-Updates-Verbindungspunkt"
+}

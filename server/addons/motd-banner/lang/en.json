@@ -1,0 +1,7 @@
+{
+  "addon.motd-banner.dismiss": "Dismiss",
+  "addon.motd-banner.meta.name": "MOTD Banner",
+  "addon.motd-banner.meta.description": "Shows a dismissible message-of-the-day banner at the top of the app. Message and color are configurable from the gear button.",
+  "addon.motd-banner.config.message_label": "Banner message",
+  "addon.motd-banner.config.color_label": "Banner color"
+}

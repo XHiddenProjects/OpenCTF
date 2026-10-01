@@ -11,51 +11,55 @@
     <!-- Login / Register screen -->
     <section id="screen-auth" class="screen">
       <div class="auth-card">
+        <div class="lang-picker-row">
+          <label class="lang-picker-label" for="lang-select-auth" data-i18n="settings.language_label">Language</label>
+          <select id="lang-select-auth" class="lang-select" aria-label="Language"></select>
+        </div>
         <div class="brand">
           <span class="brand-mark">&gt;_</span>
-          <h1>Lab CTF</h1>
+          <h1 data-i18n="auth.brand">Lab CTF</h1>
         </div>
-        <p class="auth-sub">Sign in with your team credentials to see the challenge board.</p>
+        <p class="auth-sub" data-i18n="auth.subtitle">Sign in with your team credentials to see the challenge board.</p>
 
         <div class="tabs">
-          <button class="tab-btn active" data-tab="login">Sign in</button>
-          <button class="tab-btn" data-tab="register">Create account</button>
+          <button class="tab-btn active" data-tab="login" data-i18n="auth.tab_signin">Sign in</button>
+          <button class="tab-btn" data-tab="register" data-i18n="auth.tab_register">Create account</button>
         </div>
 
         <form id="form-login" class="auth-form">
-          <label>Username
+          <label><span data-i18n="auth.username">Username</span>
             <input type="text" id="login-username" autocomplete="username" required />
           </label>
-          <label>Password
+          <label><span data-i18n="auth.password">Password</span>
             <div class="password-row">
               <input type="password" id="login-password" autocomplete="current-password" required />
-              <button type="button" class="password-toggle" data-toggle-password="login-password" aria-label="Show password">👁</button>
+              <button type="button" class="password-toggle" data-toggle-password="login-password" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
             </div>
           </label>
-          <button type="submit" class="btn-primary">Sign in</button>
+          <button type="submit" class="btn-primary" data-i18n="auth.signin_btn">Sign in</button>
           <p class="form-error" id="login-error"></p>
         </form>
 
         <form id="form-register" class="auth-form hidden">
-          <label>Username
+          <label><span data-i18n="auth.username">Username</span>
             <input type="text" id="reg-username" required />
           </label>
-          <label>Team
+          <label><span data-i18n="auth.team">Team</span>
             <select id="reg-team">
-              <option value="">Independent (no team)</option>
+              <option value="" data-i18n="auth.team_independent">Independent (no team)</option>
             </select>
           </label>
-          <label>Password
+          <label><span data-i18n="auth.password">Password</span>
             <div class="password-row">
               <input type="password" id="reg-password" minlength="8" required />
-              <button type="button" class="password-toggle" data-toggle-password="reg-password" aria-label="Show password">👁</button>
+              <button type="button" class="password-toggle" data-toggle-password="reg-password" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
             </div>
           </label>
-          <button type="submit" class="btn-primary">Create account</button>
+          <button type="submit" class="btn-primary" data-i18n="auth.register_btn">Create account</button>
           <p class="form-error" id="register-error"></p>
         </form>
 
-        <button id="open-settings" class="link-btn">Server settings</button>
+        <button id="open-settings" class="link-btn" data-i18n="settings.server_settings">Server settings</button>
       </div>
     </section>
 
@@ -66,10 +70,10 @@
           <span class="brand-mark">&gt;_</span>
           <span>Lab CTF</span>
         </div>
-        <button class="nav-btn active" data-view="challenges">Challenges</button>
-        <button class="nav-btn" data-view="scoreboard">Scoreboard</button>
-        <button class="nav-btn" data-view="profile">My profile</button>
-        <button id="nav-admin" class="nav-btn hidden" data-view="admin">Admin</button>
+        <button class="nav-btn active" data-view="challenges" data-i18n="nav.challenges">Challenges</button>
+        <button class="nav-btn" data-view="scoreboard" data-i18n="nav.scoreboard">Scoreboard</button>
+        <button class="nav-btn" data-view="profile" data-i18n="nav.profile">My profile</button>
+        <button id="nav-admin" class="nav-btn hidden" data-view="admin" data-i18n="nav.admin">Admin</button>
         <div class="sidebar-spacer"></div>
         <div class="who">
           <span id="who-avatar" class="who-avatar">🛡️</span>
@@ -81,8 +85,11 @@
              doesn't need to float a fixed-position element over the rest
              of the sidebar. Empty/hidden if that addon is disabled. -->
         <div id="sidebar-status-slot" class="sidebar-status-slot"></div>
-        <button id="open-settings-2" class="link-btn small">Server settings</button>
-        <button id="logout" class="link-btn small">Sign out</button>
+        <div class="lang-picker-row lang-picker-row-sidebar">
+          <select id="lang-select-main" class="lang-select small" aria-label="Language"></select>
+        </div>
+        <button id="open-settings-2" class="link-btn small" data-i18n="settings.server_settings">Server settings</button>
+        <button id="logout" class="link-btn small" data-i18n="nav.logout">Sign out</button>
       </nav>
 
       <main class="content">
@@ -97,7 +104,7 @@
           <header class="view-header">
             <h2>Challenges</h2>
             <div class="view-header-actions">
-              <input type="search" id="challenge-search" class="search-input" placeholder="Search challenges..." />
+              <input type="search" id="challenge-search" class="search-input" placeholder="Search challenges..." data-i18n-placeholder="common.search_placeholder" />
               <button id="refresh-challenges" class="btn-ghost">Refresh</button>
             </div>
           </header>
@@ -106,7 +113,7 @@
 
         <div id="view-scoreboard" class="view hidden">
           <header class="view-header">
-            <h2>Scoreboard</h2>
+            <h2 data-i18n="scoreboard.title">Scoreboard</h2>
             <button id="refresh-scoreboard" class="btn-ghost">Refresh</button>
           </header>
           <table class="score-table">
@@ -119,7 +126,7 @@
 
         <div id="view-profile" class="view hidden">
           <header class="view-header">
-            <h2>My profile</h2>
+            <h2 data-i18n="profile.title">My profile</h2>
           </header>
           <div class="settings-grid">
             <form id="form-profile" class="settings-card">
@@ -148,13 +155,13 @@
               <label>Current password
                 <div class="password-row">
                   <input type="password" id="pw-current" autocomplete="current-password" />
-                  <button type="button" class="password-toggle" data-toggle-password="pw-current" aria-label="Show password">👁</button>
+                  <button type="button" class="password-toggle" data-toggle-password="pw-current" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
                 </div>
               </label>
               <label>New password
                 <div class="password-row">
                   <input type="password" id="pw-new" minlength="8" autocomplete="new-password" />
-                  <button type="button" class="password-toggle" data-toggle-password="pw-new" aria-label="Show password">👁</button>
+                  <button type="button" class="password-toggle" data-toggle-password="pw-new" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
                 </div>
               </label>
               <button type="submit" class="btn-primary">Update password</button>
@@ -172,20 +179,21 @@
           <p id="ollama-status" class="ollama-status">Checking Ollama...</p>
 
           <div class="tabs admin-tabs">
-            <button class="admin-tab-btn active" data-admin-tab="challenges">Challenges</button>
-            <button class="admin-tab-btn" data-admin-tab="users">Users</button>
-            <button class="admin-tab-btn" data-admin-tab="teams">Teams</button>
-            <button class="admin-tab-btn" data-admin-tab="extensions">Addons &amp; Themes</button>
+            <button class="admin-tab-btn active" data-admin-tab="challenges" data-i18n="admin.tab_challenges">Challenges</button>
+            <button class="admin-tab-btn" data-admin-tab="users" data-i18n="admin.tab_users">Users</button>
+            <button class="admin-tab-btn" data-admin-tab="teams" data-i18n="admin.tab_teams">Teams</button>
+            <button class="admin-tab-btn" data-admin-tab="extensions" data-i18n="admin.tab_extensions">Addons &amp; Themes</button>
+            <button class="admin-tab-btn" data-admin-tab="languages" data-i18n="admin.tab_languages">Languages</button>
           </div>
 
           <div id="admin-tab-challenges" class="admin-tab">
             <div class="view-header">
               <span></span>
-              <button id="new-challenge-btn" class="btn-primary small">+ New challenge</button>
+              <button id="new-challenge-btn" class="btn-primary small">+ <span data-i18n="admin.new_challenge">New challenge</span></button>
             </div>
             <table class="score-table">
               <thead>
-                <tr><th>Title</th><th>Category</th><th>Type</th><th>Points</th><th>Active</th><th></th></tr>
+                <tr><th>Title</th><th data-i18n="challenge.category">Category</th><th>Type</th><th data-i18n="challenge.points">Points</th><th>Active</th><th></th></tr>
               </thead>
               <tbody id="admin-challenge-body"></tbody>
             </table>
@@ -268,6 +276,41 @@
               <span class="form-result" id="addon-upload-result"></span>
             </div>
           </div>
+
+          <div id="admin-tab-languages" class="admin-tab hidden">
+            <p class="field-note" data-i18n="admin.languages_intro">
+              Upload a JSON translation file to add or update a language. Every player can pick
+              any installed language from the dropdown - missing translations simply fall back
+              to English.
+            </p>
+
+            <table class="score-table">
+              <thead>
+                <tr><th data-i18n="settings.language_label">Language</th><th>Code</th><th>Keys</th><th></th></tr>
+              </thead>
+              <tbody id="admin-languages-body"></tbody>
+            </table>
+
+            <form id="form-language-upload" class="inline-form language-upload-form">
+              <input type="text" id="lang-upload-code" placeholder="Code (e.g. es, fr, de, pt-br)" required />
+              <input type="text" id="lang-upload-name" placeholder="English name (e.g. German)" required />
+              <input type="text" id="lang-upload-native-name" placeholder="Native name (e.g. Deutsch)" />
+              <div class="upload-dropzone" id="language-upload-zone">
+                <input type="file" id="language-upload-input" accept=".json" class="upload-dropzone-input" aria-label="Upload language JSON file" />
+                <span class="upload-dropzone-icon">&#8679;</span>
+                <span class="upload-dropzone-text">
+                  <strong data-i18n="admin.upload_language">Upload language file (.json)</strong>
+                  <span>Drag a file here, or click to browse</span>
+                </span>
+                <span class="upload-dropzone-file hidden" id="language-upload-filename"></span>
+              </div>
+              <div class="upload-actions">
+                <button type="button" class="btn-primary small" id="language-upload-btn" disabled data-i18n="common.upload">Upload</button>
+                <a href="#" id="language-download-template" class="link-btn small">Download English template</a>
+                <span class="form-result" id="language-upload-result"></span>
+              </div>
+            </form>
+          </div>
         </div>
 
         <div id="addon-footer-slot" class="addon-chrome-slot addon-footer-slot"></div>
@@ -294,7 +337,7 @@
           <p id="modal-rules"></p>
         </section>
         <details id="modal-hint-wrap" class="hidden">
-          <summary>Hint</summary>
+          <summary data-i18n="challenge.hint">Hint</summary>
           <p id="modal-hint"></p>
         </details>
         <div id="web-site-pane" class="web-site-pane hidden">
@@ -305,9 +348,10 @@
             <form id="form-web-address" class="web-address-form">
               <input id="web-address" type="text" value="/" aria-label="Target site address" />
             </form>
+            <button type="button" class="browser-control" id="web-devtools" title="Inspect (DevTools)" data-i18n-title="challenge.devtools_tooltip">&#128269;</button>
           </div>
           <iframe id="web-target-frame" class="web-target-frame" title="Sandboxed vulnerable target website"></iframe>
-          <p class="field-note">Target site runs on an isolated Apache-style lab server. Use its links, forms, search, and address bar.</p>
+          <p class="field-note">Target site runs on an isolated Apache-style lab server. Use its links, forms, search, and address bar. Right-click any element (or the DevTools button above) to inspect it.</p>
         </div>
         <form id="form-submit-flag">
           <input type="text" id="flag-input" placeholder="OCTF{...}" autocomplete="off" />
@@ -325,7 +369,7 @@
         <h3 id="terminal-title"></h3>
         <p id="terminal-points" class="modal-points"></p>
         <details id="terminal-hint-wrap" class="hidden">
-          <summary>Hint</summary>
+          <summary data-i18n="challenge.hint">Hint</summary>
           <p id="terminal-hint"></p>
         </details>
 
@@ -337,7 +381,7 @@
 
         <form id="form-submit-flag-terminal" class="flag-row">
           <input type="text" id="terminal-flag-input" placeholder="OCTF{...}" autocomplete="off" />
-          <button type="submit" class="btn-primary">Submit flag</button>
+          <button type="submit" class="btn-primary" data-i18n="challenge.submit_flag">Submit flag</button>
         </form>
         <p id="terminal-result" class="modal-result"></p>
       </div>
@@ -358,7 +402,7 @@
         </form>
         <form id="form-submit-flag-ai" class="flag-row">
           <input type="text" id="ai-flag-input" placeholder="OCTF{...}" autocomplete="off" />
-          <button type="submit" class="btn-primary">Submit flag</button>
+          <button type="submit" class="btn-primary" data-i18n="challenge.submit_flag">Submit flag</button>
         </form>
         <p id="ai-result" class="modal-result"></p>
       </div>
@@ -373,14 +417,14 @@
         <p id="quiz-points" class="modal-points"></p>
         <p id="quiz-desc" class="modal-desc"></p>
         <details id="quiz-hint-wrap" class="hidden">
-          <summary>Hint</summary>
+          <summary data-i18n="challenge.hint">Hint</summary>
           <p id="quiz-hint"></p>
         </details>
         <p id="quiz-question" class="quiz-question"></p>
         <div id="quiz-options" class="quiz-options"></div>
         <form id="form-submit-flag-quiz" class="flag-row hidden">
           <input type="text" id="quiz-flag-input" placeholder="OCTF{...}" autocomplete="off" />
-          <button type="submit" class="btn-primary">Submit flag</button>
+          <button type="submit" class="btn-primary" data-i18n="challenge.submit_flag">Submit flag</button>
         </form>
         <p id="quiz-result" class="modal-result"></p>
       </div>

@@ -1,0 +1,22 @@
+{
+  "addon.stats.nav_label": "Stats",
+  "addon.stats.title": "Stats",
+  "addon.stats.empty": "No teams on the board yet.",
+  "addon.stats.metric_score": "Score",
+  "addon.stats.metric_solves": "Solves",
+  "addon.stats.metric_group_label": "Metric",
+  "addon.stats.chart_bar": "Bar",
+  "addon.stats.chart_line": "Line",
+  "addon.stats.chart_area": "Area",
+  "addon.stats.chart_type_group_label": "Chart type",
+  "addon.stats.summary": "{count} teams · leading: {team} ({value} {metric})",
+  "addon.stats.chart_aria_bar": "Leaderboard bar chart",
+  "addon.stats.chart_aria_line": "Leaderboard line chart",
+  "addon.stats.chart_aria_area": "Leaderboard area chart",
+  "addon.stats.meta.name": "Stats",
+  "addon.stats.meta.description": "Adds a Stats tab that shows the leaderboard as a live chart - bar, line, or area - switchable between score and solve count, instead of a plain table.",
+  "addon.stats.config.metric_label": "Default metric",
+  "addon.stats.config.chart_type_label": "Default chart type",
+  "addon.stats.config.max_teams_label": "Teams to plot",
+  "addon.stats.config.max_teams_note": "Only the top teams by the selected metric are drawn, so the chart stays readable on a large scoreboard."
+}

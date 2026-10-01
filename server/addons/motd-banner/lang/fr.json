@@ -1,0 +1,7 @@
+{
+  "addon.motd-banner.dismiss": "Fermer",
+  "addon.motd-banner.meta.name": "Bannière du jour",
+  "addon.motd-banner.meta.description": "Affiche une bannière du jour, que l'on peut fermer, en haut de l'application. Le message et la couleur sont configurables depuis le bouton d'engrenage.",
+  "addon.motd-banner.config.message_label": "Message de la bannière",
+  "addon.motd-banner.config.color_label": "Couleur de la bannière"
+}

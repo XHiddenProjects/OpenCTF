@@ -1,6 +1,9 @@
+// Labels go through window.OpenCTF.t() with a matching data-i18n
+// attribute - see docs/LOCALIZATION.md.
 (function () {
+  const t = window.OpenCTF.t;
   window.OpenCTFAdmin.mount(async (container) => {
-    container.innerHTML = '<p class="field-note">Loading current config...</p>';
+    container.innerHTML = `<p class="field-note" data-i18n="common.loading_config">${t("common.loading_config", "Loading current config...")}</p>`;
     let config;
     try {
       config = await window.OpenCTFAdmin.get();
@@ -11,16 +14,16 @@
 
     container.innerHTML = `
       <label>
-        Particle count
+        <span data-i18n="addon.confetti-solve.config.count_label">${t("addon.confetti-solve.config.count_label", "Particle count")}</span>
         <input type="number" id="confetti-cfg-count" min="10" max="500" step="10" />
       </label>
       <label>
-        Colors (comma-separated hex)
+        <span data-i18n="addon.confetti-solve.config.colors_label">${t("addon.confetti-solve.config.colors_label", "Colors (comma-separated hex)")}</span>
         <input type="text" id="confetti-cfg-colors" />
       </label>
       <div class="form-actions">
-        <button type="button" class="btn-primary small" id="confetti-cfg-save">Save</button>
-        <button type="button" class="btn-ghost" id="confetti-cfg-preview">Preview</button>
+        <button type="button" class="btn-primary small" id="confetti-cfg-save" data-i18n="common.save">${t("common.save", "Save")}</button>
+        <button type="button" class="btn-ghost" id="confetti-cfg-preview" data-i18n="addon.confetti-solve.config.preview_btn">${t("addon.confetti-solve.config.preview_btn", "Preview")}</button>
         <span class="form-result" id="confetti-cfg-result"></span>
       </div>
     `;
@@ -41,7 +44,7 @@
           particle_count: Number(container.querySelector("#confetti-cfg-count").value) || 120,
           colors: container.querySelector("#confetti-cfg-colors").value,
         });
-        result.textContent = "Saved - live on every open client.";
+        result.textContent = t("common.saved_live", "Saved - live on every open client.");
         result.className = "form-result ok";
       } catch (err) {
         result.textContent = err.message;

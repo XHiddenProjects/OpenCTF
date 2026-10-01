@@ -1,0 +1,20 @@
+{
+  "addon.code-challenge.panel_title": "Code-Herausforderung",
+  "addon.code-challenge.run_btn": "Ausführen",
+  "addon.code-challenge.running": "Wird ausgeführt...",
+  "addon.code-challenge.reset_btn": "Zurücksetzen",
+  "addon.code-challenge.console_title": "Konsolenausgabe",
+  "addon.code-challenge.console_empty": "Noch nichts protokolliert - klicke auf Ausführen.",
+  "addon.code-challenge.tests_title": "Tests",
+  "addon.code-challenge.test_passed": "Bestanden",
+  "addon.code-challenge.test_failed": "Fehlgeschlagen",
+  "addon.code-challenge.test_error": "Fehler",
+  "addon.code-challenge.all_passed": "Alle Tests bestanden! Das Flag wurde unten eingetragen - jetzt einreichen.",
+  "addon.code-challenge.some_failed": "{passed}/{total} Tests bestanden. Weiter so.",
+  "addon.code-challenge.define_error": "Dein Code konnte nicht ausgeführt werden: {error}",
+  "addon.code-challenge.expected_label": "erwartet",
+  "addon.code-challenge.actual_label": "tatsächlich",
+  "addon.code-challenge.meta.name": "Code-Herausforderungs-Editor",
+  "addon.code-challenge.meta.description": "Fügt Coding-Herausforderungen einen Editor für JavaScript, Python, PHP, Ruby, C, C++ und Java hinzu. Judge0 prüft alle Tests; das Flag wird erst nach Bestehen aller Tests angezeigt.",
+  "addon.code-challenge.config.font_size_label": "Editor-Schriftgröße (px)"
+}

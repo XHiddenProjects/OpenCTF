@@ -1,0 +1,5 @@
+{
+  "addon.sound-effects.meta.name": "Sound Effects",
+  "addon.sound-effects.meta.description": "Plays a short beep on a correct flag submission (and a lower tone on a wrong one). Enable/disable it from its toggle, not this config - the gear button only holds the volume. Purely synthesized - no audio files.",
+  "addon.sound-effects.config.volume_label": "Volume"
+}

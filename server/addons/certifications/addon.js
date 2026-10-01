@@ -458,5 +458,10 @@
     if (mine && activeSubtab === "mine") renderMineTab(mine);
   });
 
-  window.OpenCTF.registerView({ id: ADDON_ID, label: "Certifications", render });
+  window.OpenCTF.registerView({
+    id: ADDON_ID,
+    label: "Certifications",
+    labelKey: "addon.certifications.nav_label",
+    render,
+  });
 })();

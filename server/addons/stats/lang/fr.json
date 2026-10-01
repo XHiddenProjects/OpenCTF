@@ -1,0 +1,22 @@
+{
+  "addon.stats.nav_label": "Statistiques",
+  "addon.stats.title": "Statistiques",
+  "addon.stats.empty": "Aucune équipe sur le classement pour l'instant.",
+  "addon.stats.metric_score": "Score",
+  "addon.stats.metric_solves": "Résolutions",
+  "addon.stats.metric_group_label": "Métrique",
+  "addon.stats.chart_bar": "Barres",
+  "addon.stats.chart_line": "Ligne",
+  "addon.stats.chart_area": "Aire",
+  "addon.stats.chart_type_group_label": "Type de graphique",
+  "addon.stats.summary": "{count} équipes · en tête : {team} ({value} {metric})",
+  "addon.stats.chart_aria_bar": "Graphique en barres du classement",
+  "addon.stats.chart_aria_line": "Graphique en lignes du classement",
+  "addon.stats.chart_aria_area": "Graphique en aires du classement",
+  "addon.stats.meta.name": "Statistiques",
+  "addon.stats.meta.description": "Ajoute un onglet Statistiques qui affiche le classement sous forme de graphique en direct - barres, lignes ou aires -, avec bascule entre score et nombre de résolutions, au lieu d'un simple tableau.",
+  "addon.stats.config.metric_label": "Métrique par défaut",
+  "addon.stats.config.chart_type_label": "Type de graphique par défaut",
+  "addon.stats.config.max_teams_label": "Équipes à afficher",
+  "addon.stats.config.max_teams_note": "Seules les meilleures équipes selon la métrique choisie sont tracées, afin que le graphique reste lisible sur un grand classement."
+}

@@ -6,7 +6,7 @@
 # docker-compose.yml, not by this Dockerfile - that way there's only one
 # image to build and keep in sync.
 
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 

@@ -1,0 +1,14 @@
+{
+  "addon.core.live_connected_title": "Mises à jour en direct connectées",
+  "addon.core.live_disconnected_title": "Mises à jour en direct déconnectées - reconnexion...",
+  "addon.core.live_connected": "Mises à jour en direct",
+  "addon.core.live_reconnecting": "Reconnexion...",
+  "addon.core.solved_toast": "Résolu \"{title}\" pour {points} pts !",
+  "addon.core.theme_updated": "Le thème du site vient d'être mis à jour par un administrateur.",
+  "addon.core.addon_enabled": "Extension activée : {name}",
+  "addon.core.addon_disabled": "Extension désactivée : {name}",
+  "addon.core.meta.name": "Boîte à outils principale",
+  "addon.core.meta.description": "Fonctionnalités intégrées dont dépend le reste de la plateforme : notifications de résolution, indicateur de connexion en direct, et application des mises à jour de thème/extensions en direct lorsqu'un administrateur les effectue. Toujours actif.",
+  "addon.core.config.toasts_label": "Notification lors de la résolution d'un défi",
+  "addon.core.config.dot_label": "Indicateur de connexion des mises à jour en direct"
+}

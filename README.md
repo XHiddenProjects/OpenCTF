@@ -144,7 +144,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and replace every placeholder secret. Export the values before starting the server. For a shell session, this can be done with:
+Edit `.env` and replace every placeholder secret. `python app.py` loads the adjacent `.env` automatically; variables already set in the shell take precedence. To export them explicitly instead:
 
 ```bash
 set -a
@@ -229,7 +229,7 @@ Log in with an administrator account and open the **Admin** view in the client. 
 Supported challenge types are:
 
 - **Standard:** description, hints, optional files, and a submitted flag.
-- **Terminal:** a server-side virtual filesystem explored with `ls`, `cd`, `cat`, and `pwd`.
+- **Terminal:** a server-side virtual filesystem explored with `ls`, `cd`, `cat`, `pwd`, `grep`, `find`, `file`, `strings`, `head`/`tail`, `wc`, `chmod`, and two simulated security-tool commands, `john` (dictionary-attack a `user:hash` file against a wordlist file, both read from the sandboxed filesystem) and `nmap` (print a pre-authored, pre-formatted scan report for a target defined at `/network/scans/<target>.nmap` in the challenge's filesystem; `-sV` reveals the full version/banner text, `-p` filters by port). Type `help` inside any terminal challenge for the full command reference.
 - **Web:** an isolated target page served by `target_app.py`.
 - **AI:** a conversation challenge backed by the configured Ollama model.
 

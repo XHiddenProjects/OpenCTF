@@ -1,0 +1,15 @@
+{
+  "id": "ctf-countdown",
+  "name": "CTF Countdown",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "Adds a sidebar tab with a live countdown to when the event ends (or a stopwatch counting up since it started, if no end time is set). End time and title are configurable from the gear button.",
+  "entry": "addon.js",
+  "core": ">=1.0.0",
+  "configurable": true,
+  "config_entry": "config.js",
+  "default_config": {
+    "title": "",
+    "end_time": ""
+  }
+}

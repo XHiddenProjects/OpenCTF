@@ -1,0 +1,16 @@
+{
+  "addon.ctf-countdown.meta.name": "Cuenta Regresiva CTF",
+  "addon.ctf-countdown.meta.description": "Añade una pestaña en la barra lateral con una cuenta regresiva en vivo hasta que termine el evento. La fecha de fin y el título se configuran desde el botón de engranaje.",
+  "addon.ctf-countdown.nav_label": "Cuenta regresiva",
+  "addon.ctf-countdown.default_title": "Cuenta Regresiva CTF",
+  "addon.ctf-countdown.no_end_time": "Aún no se ha establecido una fecha de fin - pide a un administrador que configure una desde el botón de engranaje.",
+  "addon.ctf-countdown.remaining": "Tiempo restante:",
+  "addon.ctf-countdown.ended": "El evento ha terminado.",
+  "addon.ctf-countdown.unit_days": "días",
+  "addon.ctf-countdown.unit_hours": "horas",
+  "addon.ctf-countdown.unit_minutes": "min",
+  "addon.ctf-countdown.unit_seconds": "seg",
+  "addon.ctf-countdown.config.title_label": "Título (opcional)",
+  "addon.ctf-countdown.config.end_time_label": "Fecha y hora de fin",
+  "addon.ctf-countdown.config.end_time_help": "Se muestra en la zona horaria local de cada jugador. Déjalo vacío para ocultar la cuenta regresiva hasta que establezcas una."
+}

@@ -1,0 +1,186 @@
+/* Stats addon - bar/line/area leaderboard chart, styled against the host
+   app's own CSS custom properties (client/src/styles.css) so it matches
+   whichever theme is active instead of hardcoding colors.
+
+   Responsiveness has two layers:
+   1. The <svg> itself is always fluid (viewBox + width: 100%), so it
+      scales continuously with its container - no breakpoints needed for
+      that part.
+   2. addon.js also watches the chart wrapper with a ResizeObserver and
+      adds .stats-chart-compact below ~460px, which this file uses to
+      tighten spacing that would otherwise get cramped at phone/narrow
+      sidebar widths (label width and font sizes are set inline per row
+      by addon.js itself, since those are per-row viewBox coordinates,
+      not something CSS alone can express). */
+
+.stats-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 4px 0 18px;
+}
+
+.stats-metric-toggle,
+.stats-chart-type-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.stats-metric-btn,
+.stats-chart-type-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stats-metric-btn + .stats-metric-btn,
+.stats-chart-type-btn + .stats-chart-type-btn {
+  border-left: 1px solid var(--border);
+}
+
+.stats-metric-btn.active,
+.stats-chart-type-btn.active {
+  background: var(--accent);
+  color: #1a1305;
+}
+
+#stats-summary {
+  flex: 1 1 auto;
+  text-align: right;
+  min-width: 140px;
+}
+
+.stats-chart-wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  /* Belt-and-braces: even if a chart variant ever needs more horizontal
+     room than the container has (a very large team count), scroll
+     instead of squashing the plot into something unreadable. */
+  overflow-x: auto;
+}
+
+.stats-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  min-width: 280px;
+}
+
+.stats-chart-label {
+  fill: var(--text-dim);
+  font-size: 12px;
+}
+
+.stats-chart-compact .stats-chart-label {
+  font-size: 11px;
+}
+
+.stats-chart-track {
+  fill: var(--bg-raised);
+}
+
+.stats-chart-bar {
+  fill: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.stats-chart-bar.stats-bar-1 {
+  fill: var(--ok);
+}
+
+.stats-chart-bar.stats-bar-2 {
+  fill: var(--accent);
+}
+
+.stats-chart-bar.stats-bar-3 {
+  fill: var(--accent-dim);
+}
+
+/* Value labels: a stroked halo in the card's own background color sits
+   behind the fill (paint-order) so the number stays legible over a bar,
+   a filled area, or a busy background at any chart width, without
+   having to hand-measure a backing rect per label. */
+.stats-chart-value {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  paint-order: stroke fill;
+  stroke: var(--bg-card);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.stats-chart-compact .stats-chart-value {
+  font-size: 11px;
+}
+
+/* Line / area chart elements (bar chart reuses the styles above) */
+
+.stats-chart-axis,
+.stats-chart-tick {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.stats-chart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.stats-chart-area {
+  fill: var(--accent);
+  opacity: 0.18;
+  stroke: none;
+}
+
+.stats-chart-dot {
+  fill: var(--accent);
+  stroke: var(--bg-card);
+  stroke-width: 2;
+}
+
+.stats-chart-dot.stats-bar-1 {
+  fill: var(--ok);
+}
+
+.stats-chart-dot.stats-bar-2 {
+  fill: var(--accent);
+}
+
+.stats-chart-dot.stats-bar-3 {
+  fill: var(--accent-dim);
+}
+
+.stats-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 12px 0;
+}
+
+@media (max-width: 480px) {
+  .stats-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #stats-summary {
+    text-align: left;
+  }
+
+  .stats-chart-wrap {
+    padding: 10px;
+  }
+}

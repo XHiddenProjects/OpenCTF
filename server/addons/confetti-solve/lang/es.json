@@ -1,0 +1,7 @@
+{
+  "addon.confetti-solve.meta.name": "Confeti al resolver",
+  "addon.confetti-solve.meta.description": "Una breve explosión de confeti en la pantalla cada vez que se envía una bandera correcta. La cantidad de partículas y los colores son configurables.",
+  "addon.confetti-solve.config.count_label": "Cantidad de partículas",
+  "addon.confetti-solve.config.colors_label": "Colores (hex separados por comas)",
+  "addon.confetti-solve.config.preview_btn": "Vista previa"
+}

@@ -1,0 +1,22 @@
+{
+  "addon.stats.nav_label": "Estadísticas",
+  "addon.stats.title": "Estadísticas",
+  "addon.stats.empty": "Todavía no hay equipos en el marcador.",
+  "addon.stats.metric_score": "Puntuación",
+  "addon.stats.metric_solves": "Resoluciones",
+  "addon.stats.metric_group_label": "Métrica",
+  "addon.stats.chart_bar": "Barras",
+  "addon.stats.chart_line": "Línea",
+  "addon.stats.chart_area": "Área",
+  "addon.stats.chart_type_group_label": "Tipo de gráfico",
+  "addon.stats.summary": "{count} equipos · líder: {team} ({value} {metric})",
+  "addon.stats.chart_aria_bar": "Gráfico de barras de la clasificación",
+  "addon.stats.chart_aria_line": "Gráfico de líneas de la clasificación",
+  "addon.stats.chart_aria_area": "Gráfico de área de la clasificación",
+  "addon.stats.meta.name": "Estadísticas",
+  "addon.stats.meta.description": "Añade una pestaña de Estadísticas que muestra la clasificación como un gráfico en vivo - de barras, de líneas o de área -, alternable entre puntuación y número de resoluciones, en lugar de una tabla simple.",
+  "addon.stats.config.metric_label": "Métrica predeterminada",
+  "addon.stats.config.chart_type_label": "Tipo de gráfico predeterminado",
+  "addon.stats.config.max_teams_label": "Equipos a mostrar",
+  "addon.stats.config.max_teams_note": "Solo se dibujan los mejores equipos según la métrica seleccionada, para que el gráfico siga siendo legible en un marcador grande."
+}

@@ -1,0 +1,5 @@
+{
+  "addon.sound-effects.meta.name": "Efectos de sonido",
+  "addon.sound-effects.meta.description": "Reproduce un pitido breve al enviar una bandera correcta (y un tono más grave si es incorrecta). Actívalo o desactívalo desde su interruptor, no desde esta configuración - el botón de engranaje solo controla el volumen. Totalmente sintetizado - sin archivos de audio.",
+  "addon.sound-effects.config.volume_label": "Volumen"
+}

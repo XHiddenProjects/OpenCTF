@@ -1,0 +1,11 @@
+{
+  "addon.certifications.nav_label": "Certifications",
+  "addon.certifications.meta.name": "Certifications",
+  "addon.certifications.meta.description": "Issue printable, verifiable completion certificates to players - adds its own Certifications tab and view. Branding (org name/logo/signature/accent color) is configurable from the gear button; the platform's own backend (server/app.py) stores and verifies certificates.",
+  "addon.certifications.config.org_name_label": "Organization name",
+  "addon.certifications.config.org_logo_label": "Organization logo URL (optional)",
+  "addon.certifications.config.signer_name_label": "Signer name (optional)",
+  "addon.certifications.config.signer_title_label": "Signer title (optional)",
+  "addon.certifications.config.accent_color_label": "Accent color",
+  "addon.certifications.config.always_shown_note": "Every certificate also always shows an \"Issued & verifiable via OpenCTF\" line, regardless of the branding above."
+}

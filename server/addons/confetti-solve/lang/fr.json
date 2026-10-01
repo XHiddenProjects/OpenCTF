@@ -1,0 +1,7 @@
+{
+  "addon.confetti-solve.meta.name": "Confettis à la résolution",
+  "addon.confetti-solve.meta.description": "Une courte explosion de confettis à l'écran chaque fois qu'un drapeau est correctement soumis. Le nombre de particules et les couleurs sont configurables.",
+  "addon.confetti-solve.config.count_label": "Nombre de particules",
+  "addon.confetti-solve.config.colors_label": "Couleurs (hex séparées par des virgules)",
+  "addon.confetti-solve.config.preview_btn": "Aperçu"
+}

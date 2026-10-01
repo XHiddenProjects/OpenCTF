@@ -1,0 +1,22 @@
+{
+  "addon.stats.nav_label": "Statistik",
+  "addon.stats.title": "Statistik",
+  "addon.stats.empty": "Noch keine Teams auf dem Scoreboard.",
+  "addon.stats.metric_score": "Punkte",
+  "addon.stats.metric_solves": "Lösungen",
+  "addon.stats.metric_group_label": "Metrik",
+  "addon.stats.chart_bar": "Balken",
+  "addon.stats.chart_line": "Linie",
+  "addon.stats.chart_area": "Fläche",
+  "addon.stats.chart_type_group_label": "Diagrammtyp",
+  "addon.stats.summary": "{count} Teams · Spitzenreiter: {team} ({value} {metric})",
+  "addon.stats.chart_aria_bar": "Balkendiagramm der Rangliste",
+  "addon.stats.chart_aria_line": "Liniendiagramm der Rangliste",
+  "addon.stats.chart_aria_area": "Flächendiagramm der Rangliste",
+  "addon.stats.meta.name": "Statistik",
+  "addon.stats.meta.description": "Fügt einen Statistik-Tab hinzu, der die Rangliste als Live-Diagramm anzeigt - Balken, Linie oder Fläche -, umschaltbar zwischen Punktzahl und Anzahl der Lösungen, statt einer einfachen Tabelle.",
+  "addon.stats.config.metric_label": "Standardmetrik",
+  "addon.stats.config.chart_type_label": "Standard-Diagrammtyp",
+  "addon.stats.config.max_teams_label": "Anzuzeigende Teams",
+  "addon.stats.config.max_teams_note": "Es werden nur die besten Teams nach der gewählten Metrik gezeichnet, damit das Diagramm bei einer großen Rangliste lesbar bleibt."
+}

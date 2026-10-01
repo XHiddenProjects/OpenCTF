@@ -1,0 +1,16 @@
+{
+  "addon.ctf-countdown.meta.name": "Compte à Rebours CTF",
+  "addon.ctf-countdown.meta.description": "Ajoute un onglet dans la barre latérale avec un compte à rebours en direct jusqu'à la fin de l'événement. La date de fin et le titre sont configurables depuis le bouton d'engrenage.",
+  "addon.ctf-countdown.nav_label": "Compte à rebours",
+  "addon.ctf-countdown.default_title": "Compte à Rebours CTF",
+  "addon.ctf-countdown.no_end_time": "Aucune date de fin n'a encore été définie - demandez à un administrateur d'en configurer une depuis le bouton d'engrenage.",
+  "addon.ctf-countdown.remaining": "Temps restant :",
+  "addon.ctf-countdown.ended": "L'événement est terminé.",
+  "addon.ctf-countdown.unit_days": "jours",
+  "addon.ctf-countdown.unit_hours": "heures",
+  "addon.ctf-countdown.unit_minutes": "min",
+  "addon.ctf-countdown.unit_seconds": "sec",
+  "addon.ctf-countdown.config.title_label": "Titre (optionnel)",
+  "addon.ctf-countdown.config.end_time_label": "Date et heure de fin",
+  "addon.ctf-countdown.config.end_time_help": "Affiché dans le fuseau horaire local de chaque joueur. Laissez vide pour masquer le compte à rebours jusqu'à ce que vous en définissiez un."
+}

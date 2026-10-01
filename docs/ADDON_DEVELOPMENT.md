@@ -34,17 +34,30 @@ server/
 ├── addons/
 │   └── <addon-id>/
 │       ├── addon.json      # manifest
-│       └── addon.js        # entry script (name is up to you, see below)
+│       ├── addon.js        # entry script (name is up to you, see below)
+│       └── lang/            # optional - see docs/LOCALIZATION.md
+│           ├── en.json
+│           └── es.json
 └── themes/
     └── <theme-id>/
         ├── theme.json       # manifest
-        └── theme.css        # entry stylesheet (name is up to you, see below)
+        ├── theme.css        # entry stylesheet (name is up to you, see below)
+        └── lang/            # optional, same as addons above - themes are
+            └── en.json      # usually pure CSS so most won't need one
 ```
 
 `<addon-id>` and `<theme-id>` are just the folder name - that's what the
 platform uses as the stable identifier (in the API, in storage, in the
 admin panel's toggle state), so don't rename a folder after it's been
 enabled by anyone, or it'll show up as a brand-new, disabled entry.
+
+If your addon or theme has its own UI text, give it a `lang/` folder
+instead of asking to get keys added to the core app's central translation
+catalog - one flat `{"key": "text"}` file per language code it supports,
+merged automatically into every player's translations while that addon is
+enabled (or that theme is active). See "Addons and themes" in
+[docs/LOCALIZATION.md](LOCALIZATION.md) for the full format, precedence
+rules, and a working example.
 
 A minimal **theme** manifest looks like this (`theme.json` - addons are
 shown separately below since, unlike themes, they have a required `core`
@@ -156,6 +169,20 @@ overrides win without needing `!important` anywhere. You can also add
 brand-new rules in a theme (e.g. a custom font import) if you need more
 than a palette swap - it's a normal stylesheet, nothing stops you.
 
+Some addons expose their own extra custom properties on top of this core
+set, for the parts of their UI a plain `--accent`/`--text` swap can't
+reach on its own - a theme overrides those the same way, by declaring
+them on `:root`, and doesn't need to know or care whether the addon's
+own stylesheet loads before or after the theme's (an addon that follows
+this pattern never *declares* the property itself, only reads it with a
+`var(--the-property, <built-in-default>)` fallback, so there's no
+specificity/order fight to lose either way). The Code Challenge Editor
+addon's syntax-highlighted editor is the current example - see the
+comment above the token-color rules in
+`server/addons/code-challenge/style.css` for its full `--cc-*` list
+(editor background/border, gutter colors, caret/selection, and one
+variable per highlighted token kind).
+
 ## Addons
 
 An addon is a plain `<script>` loaded into the page once it's enabled. It
@@ -235,10 +262,15 @@ useful from a config screen's own "preview" button (e.g. firing a fake
 anything) - see `server/addons/confetti-solve/config.js`.
 
 ```js
-window.OpenCTF.registerView({ id, label, render(container) { ... } })
+window.OpenCTF.registerView({ id, label, labelKey, render(container) { ... } })
 ```
 Adds a top-level sidebar tab and its own full-page view - see
 [Tabs, panels, and chrome slots](#tabs-panels-and-chrome-slots) below.
+`labelKey` is optional: pass a translation key here (rather than baking a
+translated string into `label` with `window.OpenCTF.t()` yourself) so the
+tab's text is kept live by the normal `applyTranslations()` pass on every
+language switch, instead of getting stuck in whatever language was active
+when the addon script first loaded.
 
 A minimal addon:
 
@@ -267,11 +299,24 @@ picks which kind:
 window.OpenCTF.registerView({
   id: "certifications",       // used as the button's data-view/data-admin-tab and the view/item element's id
   label: "Certifications",    // the button's text (ignored for "header"/"footer" - see below)
+  labelKey: "addon.certifications.nav_label", // optional - translation key kept live across language switches, see below
   render(container) { ... },  // see the render-timing note for each location below
   target: "everyone",         // optional - who can see it, see below (default: everyone logged in)
   location: "sidebar",        // optional - "sidebar" (default), "admin", "header", or "footer"
 });
 ```
+
+**`labelKey`** - optional, and only meaningful for `"sidebar"`/`"admin"`
+(the two locations with an actual button). Translating `label` yourself
+with `window.OpenCTF.t(key, "English text")` only translates it *once*,
+at registration time - the button then stays frozen in whatever language
+was active right then, since nothing tells it a language switch happened
+later. Passing that same `key` as `labelKey` instead puts a `[data-i18n]`
+attribute on the button, so it's kept in sync by the normal
+`applyTranslations()` pass that already runs on every language switch -
+the same mechanism static HTML text uses. `label` is still required
+either way, as the English text and the fallback for any language pack
+that doesn't translate `labelKey`.
 
 **`location: "sidebar"`** (the default) - the Certifications addon
 (`server/addons/certifications/`) is the fullest example. Adds a

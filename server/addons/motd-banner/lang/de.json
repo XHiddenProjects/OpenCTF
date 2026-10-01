@@ -1,0 +1,7 @@
+{
+  "addon.motd-banner.dismiss": "Ausblenden",
+  "addon.motd-banner.meta.name": "MOTD-Banner",
+  "addon.motd-banner.meta.description": "Zeigt ein schließbares Tagesnachrichten-Banner oben in der App an. Nachricht und Farbe sind über den Zahnrad-Button konfigurierbar.",
+  "addon.motd-banner.config.message_label": "Banner-Nachricht",
+  "addon.motd-banner.config.color_label": "Bannerfarbe"
+}

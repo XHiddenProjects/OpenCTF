@@ -1,0 +1,7 @@
+{
+  "addon.confetti-solve.meta.name": "Konfetti bei Lösung",
+  "addon.confetti-solve.meta.description": "Ein kurzer Konfettiregen über dem Bildschirm, sobald ein Flag korrekt eingereicht wird. Partikelanzahl und Farben sind konfigurierbar.",
+  "addon.confetti-solve.config.count_label": "Partikelanzahl",
+  "addon.confetti-solve.config.colors_label": "Farben (kommagetrennte Hex-Werte)",
+  "addon.confetti-solve.config.preview_btn": "Vorschau"
+}

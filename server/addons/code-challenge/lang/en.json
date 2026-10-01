@@ -1,0 +1,22 @@
+{
+  "addon.code-challenge.panel_title": "Code Challenge",
+  "addon.code-challenge.run_btn": "Run",
+  "addon.code-challenge.running": "Running...",
+  "addon.code-challenge.reset_btn": "Reset",
+  "addon.code-challenge.console_title": "Console output",
+  "addon.code-challenge.console_empty": "Nothing logged yet - click Run.",
+  "addon.code-challenge.tests_title": "Tests",
+  "addon.code-challenge.test_passed": "Passed",
+  "addon.code-challenge.test_failed": "Failed",
+  "addon.code-challenge.test_error": "Error",
+  "addon.code-challenge.all_passed": "All tests passed! Flag filled in below - submit when ready.",
+  "addon.code-challenge.some_failed": "{passed}/{total} tests passed. Keep going.",
+  "addon.code-challenge.define_error": "Couldn't run your code: {error}",
+  "addon.code-challenge.expected_label": "expected",
+  "addon.code-challenge.actual_label": "actual",
+  "addon.code-challenge.language_label": "Language",
+  "addon.code-challenge.console_server_run": "(server-side execution - no local console output)",
+  "addon.code-challenge.meta.name": "Code Challenge Editor",
+  "addon.code-challenge.meta.description": "Adds a code editor for JavaScript, Python, PHP, Ruby, C, C++, and Java challenges. Judge0 checks every test, and the flag is revealed only after all tests pass.",
+  "addon.code-challenge.config.font_size_label": "Editor font size (px)"
+}

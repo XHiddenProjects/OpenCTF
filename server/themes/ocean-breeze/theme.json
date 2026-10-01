@@ -1,0 +1,8 @@
+{
+  "id": "ocean-breeze",
+  "name": "Ocean Breeze",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "A light, airy blue/teal palette - a second daytime alternative alongside the built-in Forest Dawn theme.",
+  "entry": "theme.css"
+}

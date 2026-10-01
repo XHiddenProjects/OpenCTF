@@ -1,0 +1,11 @@
+{
+  "addon.certifications.nav_label": "Zertifikate",
+  "addon.certifications.meta.name": "Zertifikate",
+  "addon.certifications.meta.description": "Stellt druckbare, verifizierbare Abschlusszertifikate für Spieler aus - fügt einen eigenen Zertifikate-Tab und eine eigene Ansicht hinzu. Das Branding (Organisationsname/-logo/Unterschrift/Akzentfarbe) ist über den Zahnrad-Button konfigurierbar; das Backend der Plattform selbst (server/app.py) speichert und verifiziert Zertifikate.",
+  "addon.certifications.config.org_name_label": "Name der Organisation",
+  "addon.certifications.config.org_logo_label": "Logo-URL der Organisation (optional)",
+  "addon.certifications.config.signer_name_label": "Name der unterzeichnenden Person (optional)",
+  "addon.certifications.config.signer_title_label": "Titel der unterzeichnenden Person (optional)",
+  "addon.certifications.config.accent_color_label": "Akzentfarbe",
+  "addon.certifications.config.always_shown_note": "Jedes Zertifikat zeigt außerdem immer eine Zeile „Issued & verifiable via OpenCTF“, unabhängig vom obigen Branding."
+}

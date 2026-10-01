@@ -1,0 +1,16 @@
+{
+  "addon.ctf-countdown.meta.name": "CTF-Countdown",
+  "addon.ctf-countdown.meta.description": "Fügt einen Seitenleisten-Tab mit einem Live-Countdown bis zum Ende des Events hinzu. Endzeit und Titel sind über den Zahnrad-Button konfigurierbar.",
+  "addon.ctf-countdown.nav_label": "Countdown",
+  "addon.ctf-countdown.default_title": "CTF-Countdown",
+  "addon.ctf-countdown.no_end_time": "Es wurde noch keine Endzeit festgelegt - bitte einen Admin, eine über den Zahnrad-Button einzustellen.",
+  "addon.ctf-countdown.remaining": "Verbleibende Zeit:",
+  "addon.ctf-countdown.ended": "Das Event ist beendet.",
+  "addon.ctf-countdown.unit_days": "Tage",
+  "addon.ctf-countdown.unit_hours": "Std.",
+  "addon.ctf-countdown.unit_minutes": "Min.",
+  "addon.ctf-countdown.unit_seconds": "Sek.",
+  "addon.ctf-countdown.config.title_label": "Titel (optional)",
+  "addon.ctf-countdown.config.end_time_label": "Enddatum & -uhrzeit",
+  "addon.ctf-countdown.config.end_time_help": "Wird in der jeweiligen lokalen Zeitzone jedes Spielers angezeigt. Leer lassen, um den Countdown auszublenden, bis eine Zeit festgelegt ist."
+}

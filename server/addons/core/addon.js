@@ -74,10 +74,16 @@
       slot.innerHTML = "";
       return;
     }
+    const title = connected
+      ? window.OpenCTF.t("addon.core.live_connected_title", "Live updates connected")
+      : window.OpenCTF.t("addon.core.live_disconnected_title", "Live updates disconnected - reconnecting...");
+    const label = connected
+      ? window.OpenCTF.t("addon.core.live_connected", "Live updates")
+      : window.OpenCTF.t("addon.core.live_reconnecting", "Reconnecting...");
     slot.innerHTML = `
-      <div class="sidebar-live-row" title="${connected ? "Live updates connected" : "Live updates disconnected - reconnecting..."}">
+      <div class="sidebar-live-row" title="${title}">
         <span class="sidebar-live-dot ${connected ? "connected" : "disconnected"}"></span>
-        <span>${connected ? "Live updates" : "Reconnecting..."}</span>
+        <span>${label}</span>
       </div>
     `;
   }
@@ -102,7 +108,9 @@
 
   window.OpenCTF.on("challenge:solved", (challenge) => {
     if (!CONFIG.solve_toasts) return;
-    toast(`Solved "${challenge.title}" for ${challenge.points} pts!`, "ok");
+    toast(window.OpenCTF.t("addon.core.solved_toast", 'Solved "{title}" for {points} pts!', {
+      title: challenge.title, points: challenge.points,
+    }), "ok");
   });
 
   // "live:connected"/"live:disconnected" replay their current state to a
@@ -112,15 +120,19 @@
   window.OpenCTF.on("live:connected", () => renderLiveStatus(true));
   window.OpenCTF.on("live:disconnected", () => renderLiveStatus(false));
 
+  // Re-render whenever the active language changes too, since the status
+  // row's own text ("Live updates" / "Reconnecting...") is translated.
+  window.OpenCTF.on("language:changed", () => renderLiveStatus(window.OpenCTF.isLive()));
+
   window.OpenCTF.on("site:theme_changed", () => {
-    toast("The site theme was just updated by an admin.", "info");
+    toast(window.OpenCTF.t("addon.core.theme_updated", "The site theme was just updated by an admin."), "info");
   });
 
   window.OpenCTF.on("addon:enabled", ({ name }) => {
-    toast(`Addon enabled: ${name}`, "info");
+    toast(window.OpenCTF.t("addon.core.addon_enabled", "Addon enabled: {name}", { name }), "info");
   });
   window.OpenCTF.on("addon:disabled", ({ name }) => {
-    toast(`Addon disabled: ${name}`, "info");
+    toast(window.OpenCTF.t("addon.core.addon_disabled", "Addon disabled: {name}", { name }), "info");
   });
 
   window.OpenCTF.on("addon:config_changed", ({ id, config }) => {

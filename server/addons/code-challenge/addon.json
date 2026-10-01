@@ -1,0 +1,15 @@
+{
+  "id": "code-challenge",
+  "name": "Code Challenge Editor",
+  "version": "1.2.0",
+  "author": "OpenCTF",
+  "description": "Adds a code editor for JavaScript, Python, PHP, Ruby, C, C++, and Java challenges. Judge0 checks every test, and the flag is revealed only after all tests pass.",
+  "entry": "addon.js",
+  "core": ">=1.0.0",
+  "configurable": true,
+  "config_entry": "config.js",
+  "can_disable": false,
+  "default_config": {
+    "editor_font_size": 13
+  }
+}

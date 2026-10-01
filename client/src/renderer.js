@@ -4,6 +4,119 @@ let ME = { username: null, team: null, is_admin: false, display_name: null, bio:
 let CHALLENGES = [];
 let CHALLENGE_SEARCH = "";
 let ACTIVE_CHALLENGE = null;
+const PASSWORD_EYE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+const PASSWORD_EYE_OFF_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m3 3 18 18"></path><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 5.2A10.9 10.9 0 0 1 12 5c6.4 0 10 7 10 7a17.5 17.5 0 0 1-4.2 4.9"></path><path d="M6.6 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7c1.1 0 2.1-.2 3.1-.5"></path></svg>';
+
+// ---------------------------------------------------------------------------
+// i18n - language packs are served by the server (GET /api/languages,
+// GET /api/languages/<code>) and managed from Admin -> Languages. Only a
+// representative slice of the UI is wired up today via [data-i18n] /
+// [data-i18n-placeholder] attributes in index.html and t() calls below -
+// see docs/LOCALIZATION.md for the translation-file format and how to
+// extend coverage.
+// ---------------------------------------------------------------------------
+let AVAILABLE_LANGUAGES = []; // [{code, name, native_name, key_count, is_builtin}, ...]
+let CURRENT_LANG_CODE = "en";
+let CURRENT_TRANSLATIONS = {}; // the active pack's own keys (may be incomplete)
+let BASE_TRANSLATIONS_CACHE = {}; // English, used as the fallback for any missing key
+
+/** Look up a translated string by key, falling back to the active pack's
+ * own text -> the cached English baseline -> the fallback passed in (or
+ * the key itself, so a missing key/config error is still visible rather
+ * than showing a blank). Used by renderer.js for text built dynamically
+ * (challenge cards, toasts, confirm() dialogs) rather than static markup,
+ * which uses the [data-i18n] attribute + applyTranslations() below instead. */
+function t(key, fallback, vars) {
+  let str = CURRENT_TRANSLATIONS[key] || BASE_TRANSLATIONS_CACHE[key] || fallback || key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) str = str.split(`{${k}}`).join(v);
+  }
+  return str;
+}
+
+/** Applies the active language to every [data-i18n] / [data-i18n-placeholder]
+ * element currently in the DOM. Safe to call repeatedly (e.g. after a modal
+ * re-renders) - it only ever touches elements bearing those attributes, so
+ * it never clobbers dynamically-generated content it doesn't know about. */
+function applyTranslations() {
+  $$("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  $$("[data-i18n-placeholder]").forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+  $$("[data-i18n-title]").forEach((el) => {
+    el.title = t(el.dataset.i18nTitle);
+  });
+  document.documentElement.lang = CURRENT_LANG_CODE;
+}
+
+/** Loads the list of installed languages, restores the visitor's saved
+ * preference (if the server still has that language installed), and
+ * populates both language <select> dropdowns (auth screen + sidebar).
+ * Called once at startup, before login, same as applySiteExtensions() -
+ * the login screen has to be translatable too. */
+async function initI18n() {
+  try {
+    AVAILABLE_LANGUAGES = await (await fetch(SERVER_URL + "/api/languages")).json();
+  } catch {
+    AVAILABLE_LANGUAGES = [{ code: "en", name: "English", native_name: "English", is_builtin: true }];
+  }
+
+  const saved = localStorage.getItem("octf_lang");
+  const savedIsInstalled = saved && AVAILABLE_LANGUAGES.some((l) => l.code === saved);
+  await setLanguage(savedIsInstalled ? saved : "en", { persist: false });
+
+  [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => {
+    if (!sel) return;
+    sel.innerHTML = AVAILABLE_LANGUAGES
+      .map((l) => `<option value="${l.code}">${l.native_name}</option>`)
+      .join("");
+    sel.value = CURRENT_LANG_CODE;
+    sel.addEventListener("change", (e) => setLanguage(e.target.value));
+  });
+}
+
+/** Switches the active language: fetches that pack's translations (if not
+ * already cached), applies them to the page, syncs both dropdowns, and
+ * (by default) remembers the choice in localStorage for next launch. */
+async function setLanguage(code, { persist = true } = {}) {
+  try {
+    const data = await (await fetch(SERVER_URL + `/api/languages/${encodeURIComponent(code)}`)).json();
+    CURRENT_LANG_CODE = code;
+    CURRENT_TRANSLATIONS = data.translations || {};
+    if (code === "en") BASE_TRANSLATIONS_CACHE = CURRENT_TRANSLATIONS;
+  } catch {
+    CURRENT_LANG_CODE = "en";
+    CURRENT_TRANSLATIONS = BASE_TRANSLATIONS_CACHE;
+  }
+  // English is always the fallback source, so make sure it's cached even
+  // when the visitor's active language is something else.
+  if (code !== "en" && Object.keys(BASE_TRANSLATIONS_CACHE).length === 0) {
+    try {
+      const en = await (await fetch(SERVER_URL + "/api/languages/en")).json();
+      BASE_TRANSLATIONS_CACHE = en.translations || {};
+    } catch { /* offline - fall back to whatever keys the active pack has */ }
+  }
+  if (persist) localStorage.setItem("octf_lang", code);
+  [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => { if (sel) sel.value = CURRENT_LANG_CODE; });
+  applyTranslations();
+  // The Admin panel's stats row, Ollama status line, and the Addons &
+  // Themes catalog (name/description/toggle labels) are all built from
+  // JS template strings baked with t() at render time, not [data-i18n]
+  // markup, so applyTranslations() above can't re-translate them on its
+  // own - they need an actual re-render. Harmless to call for a
+  // non-admin (ME.is_admin is false before login) or before the admin
+  // panel has ever been opened (each function just re-populates its own
+  // element, which is always present in the static admin HTML).
+  if (ME.is_admin) {
+    loadAdminAddons();
+    loadAdminThemes();
+    loadAdminStats();
+    loadOllamaStatus();
+  }
+  octfEmit("language:changed", { code: CURRENT_LANG_CODE });
+}
 
 // ---- Minimal MD5 (RFC 1321), used only for a live flag preview in the
 // admin challenge builder. Matches Python's hashlib.md5(s.encode("utf-8"))
@@ -194,6 +307,10 @@ function switchToView(view) {
   if (registered && registered.kind !== "admin-tab") {
     try {
       registered.render(viewEl);
+      // Addon markup can use the same [data-i18n]/[data-i18n-placeholder]
+      // attributes the built-in UI does - re-apply the active language to
+      // whatever the addon just rendered, same as a static page load would.
+      applyTranslations();
     } catch (err) {
       console.error(`[OpenCTF addon] view "${view}" render threw:`, err);
     }
@@ -211,6 +328,7 @@ function switchAdminTab(tab) {
   if (registered && registered.kind === "admin-tab") {
     try {
       registered.render(paneEl);
+      applyTranslations();
     } catch (err) {
       console.error(`[OpenCTF addon] admin tab "${tab}" render threw:`, err);
     }
@@ -280,6 +398,32 @@ window.OpenCTF = {
     return ME.username ? { ...ME } : null;
   },
   /**
+   * Translate a key using the platform's active language (same lookup
+   * the built-in UI's [data-i18n] elements use: active pack -> English
+   * baseline -> `fallback` -> the key itself). Use this for any text your
+   * addon builds in JavaScript; for static markup inside your `render()`
+   * container, a plain `data-i18n="your.key"` attribute works too - it's
+   * re-applied automatically every time your view is shown.
+   *
+   * Built-in keys (nav.*, common.*, challenge.*, etc. - see
+   * docs/LOCALIZATION.md) are always safe to reuse. For your addon's own
+   * strings, pick a namespaced key like "addon.motd-banner.title" - it
+   * simply falls back to `fallback` until an admin's language pack
+   * happens to translate it, same as any other missing key. Pass a third
+   * `vars` object to fill in `{placeholders}` in the result, e.g.
+   * `t("addon.core.addon_enabled", "Addon enabled: {name}", { name })`.
+   */
+  t,
+  /** The currently active language code (e.g. "en", "es"). */
+  getLanguage() {
+    return CURRENT_LANG_CODE;
+  },
+  /** Every installed language, as [{code, name, native_name, is_builtin}, ...] -
+   * same list the built-in language dropdown is populated from. */
+  getLanguages() {
+    return AVAILABLE_LANGUAGES.map((l) => ({ ...l }));
+  },
+  /**
    * Subscribe to a platform event. Events fired: "ready" (once, after the
    * app has loaded site config and rendered its first screen),
    * "auth:login", "auth:logout", "view:change" (detail: view name),
@@ -287,8 +431,11 @@ window.OpenCTF = {
    * "challenge:wrong" (detail: {id, title, category}), "live:connected" /
    * "live:disconnected" (the /api/events connection), "site:theme_changed"
    * (detail: {active_theme, theme_entry}), "addon:enabled" / "addon:disabled"
-   * (detail: {id, name}), and "addon:config_changed" (detail: {id, config})
-   * whenever an admin saves that addon's config, from any client.
+   * (detail: {id, name}), "addon:config_changed" (detail: {id, config})
+   * whenever an admin saves that addon's config, from any client, and
+   * "language:changed" (detail: {code}) whenever the active language
+   * changes - either the viewer picked a different one, or an admin
+   * updated the pack currently in use, live.
    *
    * "ready" and "live:connected"/"live:disconnected" are replayed to a
    * handler registered after they already fired, so an addon doesn't need
@@ -337,11 +484,24 @@ window.OpenCTF = {
    *
    *   window.OpenCTF.registerView({
    *     id: "certifications",       // used as the button's data-view/data-admin-tab and the view element's id
-   *     label: "Certifications",    // button text
+   *     label: "Certifications",    // button text (also the fallback if labelKey is given but untranslated)
+   *     labelKey: "addon.certifications.nav_label", // optional - see below
    *     render(container) { ... },  // called every time this tab is opened
    *     target: "everyone",         // optional - who can see it; see below
    *     location: "sidebar",        // optional - "sidebar" (default) or "admin"
    *   });
+   *
+   * `labelKey`: optional. Passing `window.OpenCTF.t(key, label)` straight
+   * into `label` translates it *once*, at registration time, and it then
+   * stays frozen in whatever language was active at that moment - the
+   * button never finds out a language switch happened later, unlike the
+   * rest of the page. Passing that same `key` here as `labelKey` instead
+   * fixes that: it puts a `[data-i18n]` attribute on the button so it's
+   * kept in sync by the normal applyTranslations() pass that already runs
+   * on every language switch, the same mechanism static HTML text uses.
+   * `label` is still required either way, as the English text (and the
+   * fallback used if `labelKey` isn't translated in some language pack).
+   * See server/addons/certifications/addon.js for a working example.
    *
    * `location`: "sidebar" (default) adds a top-level nav button and view,
    * alongside Challenges/Scoreboard/etc. "admin" instead adds a tab
@@ -371,7 +531,7 @@ window.OpenCTF = {
    * taken or `location` isn't recognized - each id can only be
    * registered once, across every enabled addon.
    */
-  registerView({ id, label, render, target = "everyone", location = "sidebar" }) {
+  registerView({ id, label, labelKey, render, target = "everyone", location = "sidebar" }) {
     const VALID_LOCATIONS = ["sidebar", "admin", "header", "footer"];
     if (!id || !label || typeof render !== "function") {
       console.error('[OpenCTF] registerView requires "id", "label", and a render(container) function');
@@ -396,7 +556,8 @@ window.OpenCTF = {
       button = document.createElement("button");
       button.className = "admin-tab-btn";
       button.dataset.adminTab = id;
-      button.textContent = label;
+      if (labelKey) button.dataset.i18n = labelKey;
+      button.textContent = labelKey ? t(labelKey, label) : label;
       adminTabs.appendChild(button);
 
       container = document.createElement("div");
@@ -420,7 +581,8 @@ window.OpenCTF = {
       button = document.createElement("button");
       button.className = "nav-btn";
       button.dataset.view = id;
-      button.textContent = label;
+      if (labelKey) button.dataset.i18n = labelKey;
+      button.textContent = labelKey ? t(labelKey, label) : label;
       const spacer = document.querySelector(".sidebar-spacer");
       spacer.parentNode.insertBefore(button, spacer);
 
@@ -549,6 +711,11 @@ function handleLiveEvent(type, data) {
       applyThemeLink(data.active_theme, data.theme_entry);
       octfEmit("site:theme_changed", data);
       if (ME.is_admin) loadAdminThemes();
+      // The active theme can ship its own lang/<code>.json overlay (see
+      // docs/LOCALIZATION.md), so a theme switch can change what the
+      // current language actually translates - reload it live, same
+      // as the "language_changed" case below does for pack edits.
+      setLanguage(CURRENT_LANG_CODE, { persist: false }).catch(() => {});
       break;
     case "addon_toggled":
       if (data.enabled) {
@@ -568,6 +735,10 @@ function handleLiveEvent(type, data) {
         updateViewVisibility(data.id);
       }
       if (ME.is_admin) loadAdminAddons();
+      // Same reasoning as theme_changed above: an addon's own lang/
+      // overlay only applies while it's enabled, so toggling one in or
+      // out can change what the current language translates.
+      setLanguage(CURRENT_LANG_CODE, { persist: false }).catch(() => {});
       break;
     case "addon_config_changed":
       octfEmit("addon:config_changed", data);
@@ -587,6 +758,24 @@ function handleLiveEvent(type, data) {
       break;
     case "theme_deleted":
       if (ME.is_admin) loadAdminThemes();
+      break;
+    case "language_changed":
+      // Refresh the dropdown list for everyone (a new language just
+      // became pickable, or one disappeared). If the visitor is actively
+      // using the language that just changed, also reload its live
+      // translations so an admin's edits show up without a refresh.
+      (async () => {
+        try {
+          AVAILABLE_LANGUAGES = await (await fetch(SERVER_URL + "/api/languages")).json();
+          [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => {
+            if (!sel) return;
+            sel.innerHTML = AVAILABLE_LANGUAGES.map((l) => `<option value="${l.code}">${l.native_name}</option>`).join("");
+            sel.value = CURRENT_LANG_CODE;
+          });
+          if (data.code === CURRENT_LANG_CODE && data.action !== "deleted") await setLanguage(CURRENT_LANG_CODE);
+        } catch { /* best-effort live refresh */ }
+      })();
+      if (ME.is_admin) loadAdminLanguages();
       break;
     default:
       // Anything else broadcast_event() was called with server-side (e.g.
@@ -608,6 +797,7 @@ async function init() {
   SERVER_URL = config.serverUrl;
   $("#settings-url").value = SERVER_URL;
   wireEvents();
+  await initI18n();
   await applySiteExtensions();
   connectLiveUpdates();
   loadRegistrationTeams();
@@ -679,6 +869,16 @@ function wireEvents() {
   $("#web-back").addEventListener("click", () => postTargetNavigation("back"));
   $("#web-forward").addEventListener("click", () => postTargetNavigation("forward"));
   $("#web-reload").addEventListener("click", () => postTargetNavigation("reload"));
+  $("#web-devtools").addEventListener("click", () => {
+    // Only present inside the Electron app (window.ctfDevTools is exposed
+    // by preload.js) - falls back to a hint for anyone running the raw
+    // web build instead, where the browser's own F12 already works.
+    if (window.ctfDevTools) {
+      window.ctfDevTools.toggle();
+    } else {
+      alert("Use your browser's own DevTools (F12) to inspect the target site.");
+    }
+  });
   $("#form-web-address").addEventListener("submit", onTargetAddressSubmit);
   window.addEventListener("message", onTargetMessage);
 
@@ -702,6 +902,24 @@ function wireEvents() {
   wireUploadDropzone({
     zoneId: "addon-upload-zone", inputId: "addon-upload-input", filenameId: "addon-upload-filename",
     btnId: "addon-upload-btn", resultId: "addon-upload-result", kind: "addons",
+  });
+
+  // Admin: Languages
+  wireLanguageUploadDropzone();
+  $("#language-download-template").addEventListener("click", async (e) => {
+    e.preventDefault();
+    try {
+      const en = await (await fetch(SERVER_URL + "/api/languages/en")).json();
+      const blob = new Blob([JSON.stringify(en.translations, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "octf-language-template.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message);
+    }
   });
 
   // Admin: challenge form
@@ -728,14 +946,21 @@ function wireEvents() {
 // Auth
 // ---------------------------------------------------------------------------
 
+function setPasswordToggle(btn, visible) {
+  const label = visible ? "Hide password" : "Show password";
+  btn.innerHTML = visible ? PASSWORD_EYE_OFF_ICON : PASSWORD_EYE_ICON;
+  btn.setAttribute("aria-label", label);
+  btn.title = label;
+}
+
 function wirePasswordToggles() {
   $$("[data-toggle-password]").forEach((btn) => {
+    setPasswordToggle(btn, false);
     btn.addEventListener("click", () => {
       const input = $(`#${btn.dataset.togglePassword}`);
       const showing = input.type === "text";
       input.type = showing ? "password" : "text";
-      btn.textContent = showing ? "👁" : "🙈";
-      btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+      setPasswordToggle(btn, !showing);
     });
   });
 }
@@ -750,8 +975,7 @@ function resetAuthForms() {
   $$("[data-toggle-password]").forEach((btn) => {
     const input = $(`#${btn.dataset.togglePassword}`);
     if (input) input.type = "password";
-    btn.textContent = "👁";
-    btn.setAttribute("aria-label", "Show password");
+    setPasswordToggle(btn, false);
   });
 }
 
@@ -1508,6 +1732,7 @@ async function loadAdmin() {
     loadOllamaStatus(),
     loadAdminThemes(),
     loadAdminAddons(),
+    loadAdminLanguages(),
   ]);
 }
 
@@ -1516,10 +1741,11 @@ async function loadOllamaStatus() {
   try {
     const body = await api("/api/admin/ollama");
     status.textContent = body.available && body.model_available
-      ? `Ollama ready · ${body.model}${body.models.length ? ` · ${body.models.length} model(s)` : ""}`
+      ? t("admin.ollama_ready", "Ollama ready · {model}", { model: body.model })
+        + (body.models.length ? t("admin.ollama_models_suffix", " · {count} model(s)", { count: body.models.length }) : "")
       : body.available
-        ? `Ollama online, model missing · run: ollama pull ${body.model}`
-      : `Ollama offline · start Ollama at ${body.url} and pull ${body.model}`;
+        ? t("admin.ollama_model_missing", "Ollama online, model missing · run: ollama pull {model}", { model: body.model })
+      : t("admin.ollama_offline", "Ollama offline · start Ollama at {url} and pull {model}", { url: body.url, model: body.model });
     status.className = `ollama-status ${body.available && body.model_available ? "ok" : "err"}`;
     OLLAMA_MODELS = body.models || [];
     OLLAMA_DEFAULT_MODEL = body.model || null;
@@ -1560,11 +1786,11 @@ async function loadAdminStats() {
   try {
     const s = await api("/api/admin/stats");
     const cards = [
-      ["Users", s.users],
-      ["Teams", s.teams],
-      ["Challenges", `${s.active_challenges}/${s.challenges}`],
-      ["Correct solves", s.correct_submissions],
-      ["Total attempts", s.total_submissions],
+      [t("admin.stat_users", "Users"), s.users],
+      [t("admin.stat_teams", "Teams"), s.teams],
+      [t("admin.stat_challenges", "Challenges"), `${s.active_challenges}/${s.challenges}`],
+      [t("admin.stat_correct_solves", "Correct solves"), s.correct_submissions],
+      [t("admin.stat_total_attempts", "Total attempts"), s.total_submissions],
     ];
     el.innerHTML = cards
       .map(
@@ -1698,11 +1924,13 @@ async function loadAdminThemes() {
   const result = $("#theme-save-result");
   try {
     ADMIN_THEMES = await api("/api/admin/themes");
-    const options = ['<option value="">Default (no theme)</option>'].concat(
-      ADMIN_THEMES.map((t) => `<option value="${t.id}">${t.name} (v${t.version})</option>`)
+    const options = [`<option value="">${t("admin.no_theme_option", "Default (no theme)")}</option>`].concat(
+      ADMIN_THEMES.map(
+        (th) => `<option value="${th.id}">${t(`theme.${th.id}.meta.name`, th.name)} (v${th.version})</option>`
+      )
     );
     select.innerHTML = options.join("");
-    const active = ADMIN_THEMES.find((t) => t.active);
+    const active = ADMIN_THEMES.find((th) => th.active);
     select.value = active ? active.id : "";
     renderThemeMeta(active || null);
     updateThemeDeleteButtonState();
@@ -1716,12 +1944,13 @@ async function loadAdminThemes() {
 function renderThemeMeta(theme) {
   const meta = $("#theme-meta");
   if (!theme) {
-    meta.innerHTML = '<p class="extension-desc">The built-in OpenCTF look - no theme file loaded.</p>';
+    meta.innerHTML = `<p class="extension-desc">${t("admin.theme_builtin_desc", "The built-in OpenCTF look - no theme file loaded.")}</p>`;
     return;
   }
+  const desc = t(`theme.${theme.id}.meta.description`, theme.description);
   meta.innerHTML = `
-    ${theme.author ? `<div class="extension-author">by ${theme.author}</div>` : ""}
-    ${theme.description ? `<div class="extension-desc">${theme.description}</div>` : ""}
+    ${theme.author ? `<div class="extension-author">${t("common.by_author", "by {name}", { name: theme.author })}</div>` : ""}
+    ${desc ? `<div class="extension-desc">${desc}</div>` : ""}
   `;
 }
 
@@ -1744,7 +1973,7 @@ async function onSaveTheme() {
       method: "POST",
       body: JSON.stringify({ theme_id: select.value || null }),
     });
-    result.textContent = "Saved - live on every open client.";
+    result.textContent = t("common.saved_live", "Saved - live on every open client.");
     result.className = "form-result ok";
     await loadAdminThemes();
   } catch (err) {
@@ -1758,12 +1987,13 @@ async function onDeleteTheme() {
   const select = $("#theme-select");
   const themeId = select.value;
   if (!themeId) return; // Default - nothing to delete
-  const theme = ADMIN_THEMES.find((t) => t.id === themeId);
+  const theme = ADMIN_THEMES.find((th) => th.id === themeId);
   const result = $("#theme-save-result");
-  if (!confirm(`Delete "${theme ? theme.name : themeId}"? This removes its folder from the server and can't be undone.`)) return;
+  const displayName = theme ? t(`theme.${theme.id}.meta.name`, theme.name) : themeId;
+  if (!confirm(t("admin.confirm_delete_extension", 'Delete "{name}"? This removes its folder from the server and can\'t be undone.', { name: displayName }))) return;
   try {
     await api(`/api/admin/themes/${themeId}`, { method: "DELETE" });
-    result.textContent = "Deleted.";
+    result.textContent = t("common.delete", "Deleted.");
     result.className = "form-result ok";
     await loadAdminThemes();
   } catch (err) {
@@ -1781,7 +2011,7 @@ async function loadAdminAddons() {
   try {
     ADMIN_ADDONS = await api("/api/admin/addons");
     if (ADMIN_ADDONS.length === 0) {
-      el.innerHTML = '<p class="extensions-empty">No addons found on the server yet.</p>';
+      el.innerHTML = `<p class="extensions-empty">${t("admin.no_addons_found", "No addons found on the server yet.")}</p>`;
       return;
     }
     el.innerHTML = ADMIN_ADDONS.map((a) => {
@@ -1790,21 +2020,31 @@ async function loadAdminAddons() {
       // manifest's "core" version requirement isn't met by this server
       // right now (auto-disabled - see enabled_addon_ids() server-side).
       const toggleDisabled = !a.can_disable || !a.compatible;
-      const toggleLabel = !a.can_disable ? "Always on" : !a.compatible ? "Unavailable" : "Enabled";
+      const toggleLabel = !a.can_disable
+        ? t("admin.toggle_always_on", "Always on")
+        : !a.compatible
+          ? t("admin.toggle_unavailable", "Unavailable")
+          : t("admin.toggle_enabled", "Enabled");
+      // Every shipped addon's own lang/ folder can translate its catalog
+      // name/description via addon.<id>.meta.name / .meta.description
+      // (see docs/LOCALIZATION.md) - these fall back to the raw manifest
+      // text for any addon that doesn't supply a translation.
+      const displayName = t(`addon.${a.id}.meta.name`, a.name);
+      const displayDesc = t(`addon.${a.id}.meta.description`, a.description);
       return `
       <div class="extension-card">
         <div class="extension-info">
           <div class="extension-title">
-            ${a.name} <span class="extension-version">v${a.version}</span>
+            ${displayName} <span class="extension-version">v${a.version}</span>
             ${!a.can_disable ? '<span class="extension-core-badge">core</span>' : ""}
           </div>
-          ${a.author ? `<div class="extension-author">by ${a.author}</div>` : ""}
-          ${a.description ? `<div class="extension-desc">${a.description}</div>` : ""}
+          ${a.author ? `<div class="extension-author">${t("common.by_author", "by {name}", { name: a.author })}</div>` : ""}
+          ${displayDesc ? `<div class="extension-desc">${displayDesc}</div>` : ""}
           ${!a.compatible ? `<div class="extension-compat-warning">${a.compatibility_note}</div>` : ""}
         </div>
         <div class="extension-actions">
-          ${a.configurable ? `<button type="button" class="icon-btn" title="Configure ${a.name}" data-configure-addon="${a.id}">&#9881;</button>` : ""}
-          ${a.can_disable ? `<button type="button" class="icon-btn icon-btn-danger" title="Delete ${a.name}" data-delete-addon="${a.id}">&#128465;</button>` : ""}
+          ${a.configurable ? `<button type="button" class="icon-btn" title="${t("admin.configure_tooltip", "Configure {name}", { name: displayName })}" data-configure-addon="${a.id}">&#9881;</button>` : ""}
+          ${a.can_disable ? `<button type="button" class="icon-btn icon-btn-danger" title="${t("admin.delete_tooltip", "Delete {name}", { name: displayName })}" data-delete-addon="${a.id}">&#128465;</button>` : ""}
           <label class="toggle-row">
             <span class="toggle-switch">
               <input type="checkbox" data-toggle-addon="${a.id}" ${a.enabled ? "checked" : ""} ${toggleDisabled ? "disabled" : ""} />
@@ -1830,6 +2070,92 @@ async function loadAdminAddons() {
   }
 }
 
+async function loadAdminLanguages() {
+  const body = $("#admin-languages-body");
+  if (!body) return; // this HTML build predates the Languages tab
+  try {
+    const langs = await api("/api/admin/languages");
+    body.innerHTML = langs.map((l) => `
+      <tr>
+        <td>${l.native_name}${l.name !== l.native_name ? ` <span class="extension-author">(${l.name})</span>` : ""}</td>
+        <td><code>${l.code}</code>${l.is_builtin ? ' <span class="extension-core-badge">built-in</span>' : ""}</td>
+        <td>${l.key_count}</td>
+        <td>${l.is_builtin ? "" : `<button type="button" class="icon-btn icon-btn-danger" title="Delete ${l.native_name}" data-delete-language="${l.code}">&#128465;</button>`}</td>
+      </tr>`).join("");
+    $$("[data-delete-language]").forEach((btn) => {
+      btn.addEventListener("click", () => onDeleteLanguage(btn.dataset.deleteLanguage));
+    });
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="4" class="form-error">${err.message}</td></tr>`;
+  }
+}
+
+async function onDeleteLanguage(code) {
+  if (!confirm(`Delete the "${code}" language pack? Anyone using it falls back to English.`)) return;
+  try {
+    await api(`/api/admin/languages/${encodeURIComponent(code)}`, { method: "DELETE" });
+    await loadAdminLanguages();
+    // If the language being removed is what this admin's own browser is
+    // currently showing, fall back to English rather than leave the UI
+    // pointed at translations that no longer exist server-side.
+    if (CURRENT_LANG_CODE === code) await setLanguage("en");
+    // Someone else's dropdown might still be showing it too.
+    AVAILABLE_LANGUAGES = await (await fetch(SERVER_URL + "/api/languages")).json();
+    [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => {
+      if (!sel) return;
+      sel.innerHTML = AVAILABLE_LANGUAGES.map((l) => `<option value="${l.code}">${l.native_name}</option>`).join("");
+      sel.value = CURRENT_LANG_CODE;
+    });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function onUploadLanguage() {
+  const codeInput = $("#lang-upload-code");
+  const nameInput = $("#lang-upload-name");
+  const nativeInput = $("#lang-upload-native-name");
+  const fileInput = $("#language-upload-input");
+  const result = $("#language-upload-result");
+  const file = fileInput.files[0];
+  if (!file) {
+    result.textContent = "Choose a .json file first.";
+    result.className = "form-result err";
+    return;
+  }
+  result.textContent = "Uploading...";
+  result.className = "form-result";
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("code", codeInput.value.trim().toLowerCase());
+  formData.append("name", nameInput.value.trim());
+  formData.append("native_name", nativeInput.value.trim() || nameInput.value.trim());
+  try {
+    const res = await fetch(`${SERVER_URL}/api/admin/languages/upload`, {
+      method: "POST",
+      headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {},
+      body: formData,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `upload failed (${res.status})`);
+    result.textContent = `Saved "${body.native_name}" (${body.key_count} translated strings).`;
+    result.className = "form-result ok";
+    $("#form-language-upload").reset();
+    $("#language-upload-filename").classList.add("hidden");
+    $("#language-upload-btn").disabled = true;
+    await loadAdminLanguages();
+    AVAILABLE_LANGUAGES = await (await fetch(SERVER_URL + "/api/languages")).json();
+    [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => {
+      if (!sel) return;
+      sel.innerHTML = AVAILABLE_LANGUAGES.map((l) => `<option value="${l.code}">${l.native_name}</option>`).join("");
+      sel.value = CURRENT_LANG_CODE;
+    });
+  } catch (err) {
+    result.textContent = err.message;
+    result.className = "form-result err";
+  }
+}
+
 async function onToggleAddon(addonId) {
   try {
     await api(`/api/admin/addons/${addonId}/toggle`, { method: "POST" });
@@ -1842,7 +2168,8 @@ async function onToggleAddon(addonId) {
 
 async function onDeleteAddon(addonId) {
   const addon = ADMIN_ADDONS.find((a) => a.id === addonId);
-  if (!confirm(`Delete "${addon ? addon.name : addonId}"? This removes its folder from the server and can't be undone.`)) return;
+  const displayName = addon ? t(`addon.${addon.id}.meta.name`, addon.name) : addonId;
+  if (!confirm(t("admin.confirm_delete_extension", 'Delete "{name}"? This removes its folder from the server and can\'t be undone.', { name: displayName }))) return;
   try {
     await api(`/api/admin/addons/${addonId}`, { method: "DELETE" });
     await loadAdminAddons();
@@ -1860,7 +2187,8 @@ async function onDeleteAddon(addonId) {
 // before the script loads. See docs/ADDON_DEVELOPMENT.md for the contract.
 function openAddonConfigModal(addonId) {
   const addon = ADMIN_ADDONS.find((a) => a.id === addonId);
-  $("#addon-config-title").textContent = `Configure ${addon ? addon.name : addonId}`;
+  const displayName = addon ? t(`addon.${addon.id}.meta.name`, addon.name) : addonId;
+  $("#addon-config-title").textContent = t("admin.configure_tooltip", "Configure {name}", { name: displayName });
   const container = $("#addon-config-body");
   container.innerHTML = '<p class="field-note">Loading...</p>';
   $("#modal-addon-config").classList.remove("hidden");
@@ -1906,6 +2234,40 @@ function openAddonConfigModal(addonId) {
 // for file inputs, so there's no manual DataTransfer plumbing needed here.
 // This just keeps the visible filename chip / Install button in sync with
 // it and adds a drag-hover state.
+function wireLanguageUploadDropzone() {
+  const zone = $("#language-upload-zone");
+  const input = $("#language-upload-input");
+  const filenameEl = $("#language-upload-filename");
+  const btn = $("#language-upload-btn");
+  if (!zone || !input || !btn) return; // this HTML build predates the Languages tab
+
+  function syncFromInput() {
+    const file = input.files[0];
+    if (file) {
+      filenameEl.textContent = file.name;
+      filenameEl.classList.remove("hidden");
+      btn.disabled = false;
+    } else {
+      filenameEl.textContent = "";
+      filenameEl.classList.add("hidden");
+      btn.disabled = true;
+    }
+  }
+
+  input.addEventListener("change", syncFromInput);
+  let dragEndTimer;
+  zone.addEventListener("dragover", () => {
+    zone.classList.add("drag-active");
+    clearTimeout(dragEndTimer);
+    dragEndTimer = setTimeout(() => zone.classList.remove("drag-active"), 150);
+  });
+  zone.addEventListener("drop", () => {
+    zone.classList.remove("drag-active");
+    setTimeout(syncFromInput, 0);
+  });
+  btn.addEventListener("click", onUploadLanguage);
+}
+
 function wireUploadDropzone({ zoneId, inputId, filenameId, btnId, resultId, kind }) {
   const zone = $(`#${zoneId}`);
   const input = $(`#${inputId}`);

@@ -1,0 +1,441 @@
+/* Code Challenge Editor addon - styled against the host app's own CSS
+   custom properties (client/src/styles.css) so it matches whichever
+   theme is active. Layout is a simple two-column grid (console output /
+   test results) that collapses to a single stacked column on narrow
+   screens - see the media query at the bottom. */
+
+.cc-panel {
+  margin: 4px 0 18px;
+  padding: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.cc-header h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cc-lang-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* Same visual footprint as .cc-lang-badge above (a small pill next to
+   the title) but a real, functional <select> - rendered instead of the
+   badge whenever a task lists more than one runnable language (see
+   task.languages in parseTask()). */
+.cc-lang-select {
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 20px 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  border: 1px solid var(--cc-editor-border, var(--border));
+  color: var(--text-dim);
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%), linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+  background-position: right 10px center, right 6px center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+
+.cc-lang-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.cc-instructions {
+  margin: 0 0 10px;
+}
+
+/* --- Editor --- */
+
+.cc-editor-host {
+  margin-bottom: 10px;
+}
+
+.cc-editor {
+  display: flex;
+  border: 1px solid var(--cc-editor-border, var(--border));
+  border-radius: var(--radius);
+  background: var(--cc-editor-bg, var(--bg-raised));
+  /* The editor grows with its content (no internal scrolling, no manual
+     resize handle - see .cc-textarea below) up to this cap, past which
+     the *whole* editor (gutter and code together, as one flex row) is
+     what scrolls - overflow-y here, not on the gutter or the textarea
+     individually. That's deliberate: this used to be two things with
+     their own independent scroll position (the textarea's internal
+     scroll vs. an outer clipping box) that had to be kept in sync by
+     hand and could drift apart - the cursor would be in the right place
+     in the textarea while the highlighted text behind it was scrolled
+     to a different position. With only one scrollable element, there's
+     nothing left to fall out of sync. */
+  max-height: 420px;
+  min-height: 160px;
+  overflow-y: auto;
+  /* Horizontal scrolling belongs to .cc-code-wrap only (the gutter
+     shouldn't scroll sideways) - explicit here because overflow-y: auto
+     alone would otherwise force overflow-x to auto too per the CSS
+     Overflow spec, giving this row its own competing horizontal
+     scrollbar in addition to .cc-code-wrap's. */
+  overflow-x: hidden;
+}
+
+.cc-gutter {
+  flex: 0 0 auto;
+  align-self: stretch;
+  padding: 8px 8px 8px 10px;
+  color: var(--cc-gutter-color, var(--text-dim));
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  line-height: 1.5;
+  text-align: right;
+  white-space: pre;
+  user-select: none;
+  border-right: 1px solid var(--cc-editor-border, var(--border));
+  background: var(--cc-gutter-bg, var(--bg-card));
+}
+
+.cc-code-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Grid, not the highlight layer being position:absolute over a
+     position:relative wrapper (which is what this used to be): a grid
+     cell auto-sizes to its tallest/widest child and *both* children
+     stretch to fill it, in both dimensions, as a normal part of layout
+     - not something scrollTop/scrollLeft has to be copied onto by hand
+     on every input/scroll event. Horizontal scrolling for a long line
+     is local to this element only (the gutter shouldn't scroll
+     sideways); vertical scrolling is the outer .cc-editor's job (see
+     above), so this only ever needs an x-scrollbar. */
+  display: grid;
+  overflow-x: auto;
+}
+
+/* minmax(100%, max-content): never narrower than the visible column
+   (so short code still fills it), but grows to fit a long line instead
+   of wrapping or clipping it - the standard sizing for this "overlay a
+   real textarea on a highlighted <pre>" pattern. */
+.cc-code-wrap {
+  grid-template-columns: minmax(100%, max-content);
+}
+
+/* The highlighted <pre> and the real <textarea> are stacked in the same
+   grid cell (same font/line-height/padding/tab-size on both - see
+   CodeEditor's shared font-size assignment and the rules below) so the
+   colored text lines up with what the player is actually editing. The
+   textarea's own text is made transparent (not hidden - the caret,
+   selection highlight, and IME composition all still need it) so the
+   <pre> layer shows through. */
+.cc-highlight,
+.cc-textarea {
+  grid-column: 1;
+  grid-row: 1;
+  margin: 0;
+  padding: 8px 10px;
+  border: none;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: inherit;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+  word-wrap: normal;
+  overflow-wrap: normal;
+}
+.cc-textarea::-webkit-scrollbar {
+  display: none;
+}
+.cc-textarea{
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.cc-highlight {
+  /* Purely decorative - never receives input or scrolls on its own; it
+     is exactly as large as the grid cell (which the real textarea also
+     fills), so it's always aligned with what's actually being typed
+     with no separate position to keep in sync. */
+  pointer-events: none;
+  color: var(--cc-tok-default, var(--text));
+  background: transparent;
+}
+
+.cc-highlight code {
+  font-family: inherit;
+}
+
+.cc-textarea {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  /* Textareas don't participate in grid/flex auto-sizing the way a
+     normal block element (like the .cc-highlight <pre> next to it)
+     does - their layout size follows rows/cols, not their actual text,
+     so align-items: stretch alone doesn't reliably grow one to fill its
+     cell. Without this explicit height: 100% the textarea stayed at its
+     own small intrinsic size regardless of how much was typed, grew its
+     own native scrollbar to cope, and that scrollbar had nothing to do
+     with (and never matched) the outer .cc-editor's - two independent
+     scrollable elements, not one, is what "two scrollbars" actually
+     was. overflow: hidden is a belt-and-suspenders backstop: once
+     height: 100% is correct there's nothing left to scroll internally,
+     but this guarantees no stray scrollbar can reappear if that ever
+     changes. */
+  overflow: hidden;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--cc-caret, var(--text));
+  outline: none;
+}
+
+/* The app has a global `textarea:focus-visible { outline: 1px solid
+   var(--accent); border-color: var(--accent); }` rule (see
+   client/src/styles.css) that applies to every textarea site-wide,
+   including this one - an element+pseudo-class selector outranks our
+   plain .cc-textarea class, so outline: none above was never actually
+   winning. Beating it needs equal-or-higher specificity, not just
+   "set it after" - .cc-editor .cc-textarea:focus-visible does that.
+   The whole editor gets a soft focus ring instead (on .cc-editor
+   itself, via :focus-within below) so focus is still visible - just as
+   one shape around the whole widget instead of the browser's own ring
+   landing on top of the gutter/highlight overlay. */
+.cc-editor .cc-textarea:focus,
+.cc-editor .cc-textarea:focus-visible {
+  outline: none;
+  border-color: transparent;
+}
+
+.cc-editor:focus-within {
+  border-color: var(--cc-editor-border, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.cc-textarea::selection {
+  background: var(--cc-selection, color-mix(in srgb, var(--accent) 35%, transparent));
+  color: transparent;
+}
+
+/* Themed scrollbar for .cc-editor, the one element that actually
+   scrolls now (see its comment above). */
+.cc-editor {
+  scrollbar-width: thin;
+  scrollbar-color: var(--cc-editor-border, var(--border)) transparent;
+}
+
+.cc-editor::-webkit-scrollbar,
+.cc-code-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.cc-editor::-webkit-scrollbar-track,
+.cc-code-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cc-editor::-webkit-scrollbar-thumb,
+.cc-code-wrap::-webkit-scrollbar-thumb {
+  background: var(--cc-editor-border, var(--border));
+  border-radius: 999px;
+}
+
+.cc-editor::-webkit-scrollbar-corner,
+.cc-code-wrap::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* --- Syntax highlighting token colors ---
+   Every value here is only a fallback - a theme (server/themes/<id>/
+   theme.css) can override the actual color players see by declaring any
+   of these same custom properties on :root, with no addon code changes:
+     --cc-editor-bg, --cc-editor-border, --cc-gutter-bg, --cc-gutter-color,
+     --cc-caret, --cc-selection, --cc-tok-default, --cc-tok-comment,
+     --cc-tok-string, --cc-tok-number, --cc-tok-keyword, --cc-tok-literal,
+     --cc-tok-function, --cc-tok-variable
+   None of these are ever *defined* by this stylesheet itself (only
+   referenced as a var() fallback default) so a theme's :root rule always
+   wins over the built-in look - there's no specificity fight to lose. */
+
+.tok-comment {
+  color: var(--cc-tok-comment, var(--text-dim));
+}
+
+.tok-string {
+  color: var(--cc-tok-string, var(--ok));
+}
+
+.tok-number {
+  color: var(--cc-tok-number, color-mix(in srgb, var(--ok) 55%, var(--accent) 45%));
+}
+
+.tok-keyword {
+  color: var(--cc-tok-keyword, color-mix(in srgb, var(--accent) 85%, var(--text) 15%));
+}
+
+.tok-literal {
+  color: var(--cc-tok-literal, color-mix(in srgb, var(--err) 45%, var(--accent) 55%));
+}
+
+.tok-function {
+  color: var(--cc-tok-function, color-mix(in srgb, var(--accent) 55%, var(--text) 45%));
+}
+
+.tok-variable {
+  color: var(--cc-tok-variable, color-mix(in srgb, var(--text) 65%, var(--accent) 35%));
+}
+
+/* --- Toolbar --- */
+
+.cc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.cc-reset-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.cc-status {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.cc-status-ok {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.cc-status-err {
+  color: var(--err, #e5484d);
+  font-weight: 600;
+}
+
+/* --- Console + tests columns --- */
+
+.cc-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 14px;
+}
+
+.cc-console h5,
+.cc-tests h5 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.cc-console-body {
+  margin: 0;
+  padding: 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.cc-tests {
+  display: flex;
+  flex-direction: column;
+}
+
+.cc-test-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.cc-test-row:last-child {
+  border-bottom: none;
+}
+
+.cc-test-badge {
+  flex: 0 0 auto;
+  min-width: 52px;
+  text-align: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+}
+
+.cc-test-pass .cc-test-badge {
+  background: var(--ok);
+  color: #08210f;
+}
+
+.cc-test-fail .cc-test-badge,
+.cc-test-error .cc-test-badge {
+  background: var(--err, #e5484d);
+  color: #2a0a0a;
+}
+
+.cc-test-call {
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+}
+
+.cc-test-detail {
+  color: var(--text-dim);
+  flex-basis: 100%;
+}
+
+.cc-test-detail code {
+  color: var(--text);
+}
+
+/* Brief highlight on the real flag input when this addon auto-fills it */
+#flag-input.cc-flag-filled {
+  transition: background-color 0.2s ease;
+  background-color: color-mix(in srgb, var(--ok) 25%, var(--bg-raised));
+}
+
+@media (max-width: 560px) {
+  .cc-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .cc-editor {
+    min-height: 140px;
+    max-height: 280px;
+  }
+}

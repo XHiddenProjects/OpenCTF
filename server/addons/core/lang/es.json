@@ -1,0 +1,14 @@
+{
+  "addon.core.live_connected_title": "Actualizaciones en vivo conectadas",
+  "addon.core.live_disconnected_title": "Actualizaciones en vivo desconectadas - reconectando...",
+  "addon.core.live_connected": "Actualizaciones en vivo",
+  "addon.core.live_reconnecting": "Reconectando...",
+  "addon.core.solved_toast": "¡Resuelto \"{title}\" por {points} pts!",
+  "addon.core.theme_updated": "Un administrador acaba de actualizar el tema del sitio.",
+  "addon.core.addon_enabled": "Complemento activado: {name}",
+  "addon.core.addon_disabled": "Complemento desactivado: {name}",
+  "addon.core.meta.name": "Kit de Herramientas Principal",
+  "addon.core.meta.description": "Funcionalidad integrada de la que depende el resto de la plataforma: notificaciones de resolución, un indicador de conexión en vivo, y la aplicación de actualizaciones en vivo de tema/complementos cuando un administrador las realiza. Siempre activo.",
+  "addon.core.config.toasts_label": "Notificación al resolver un reto",
+  "addon.core.config.dot_label": "Indicador de conexión de actualizaciones en vivo"
+}

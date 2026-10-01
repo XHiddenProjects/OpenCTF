@@ -6,9 +6,12 @@
 // To actually preview a certificate with this branding applied, use the
 // Preview button on the Certifications tab's own Manage sub-tab - it
 // already builds the real certificate render, so it isn't duplicated here.
+// Labels go through window.OpenCTF.t() with a matching data-i18n
+// attribute - see docs/LOCALIZATION.md.
 (function () {
+  const t = window.OpenCTF.t;
   window.OpenCTFAdmin.mount(async (container) => {
-    container.innerHTML = '<p class="field-note">Loading current config...</p>';
+    container.innerHTML = `<p class="field-note" data-i18n="common.loading_config">${t("common.loading_config", "Loading current config...")}</p>`;
     let config;
     try {
       config = await window.OpenCTFAdmin.get();
@@ -19,28 +22,28 @@
 
     container.innerHTML = `
       <label>
-        Organization name
+        <span data-i18n="addon.certifications.config.org_name_label">${t("addon.certifications.config.org_name_label", "Organization name")}</span>
         <input type="text" id="cert-cfg-org-name" placeholder="OpenCTF" />
       </label>
       <label>
-        Organization logo URL (optional)
+        <span data-i18n="addon.certifications.config.org_logo_label">${t("addon.certifications.config.org_logo_label", "Organization logo URL (optional)")}</span>
         <input type="text" id="cert-cfg-org-logo" placeholder="https://example.com/logo.png" />
       </label>
       <label>
-        Signer name (optional)
+        <span data-i18n="addon.certifications.config.signer_name_label">${t("addon.certifications.config.signer_name_label", "Signer name (optional)")}</span>
         <input type="text" id="cert-cfg-signer-name" placeholder="e.g. Jane Doe" />
       </label>
       <label>
-        Signer title (optional)
+        <span data-i18n="addon.certifications.config.signer_title_label">${t("addon.certifications.config.signer_title_label", "Signer title (optional)")}</span>
         <input type="text" id="cert-cfg-signer-title" placeholder="e.g. Program Director" />
       </label>
       <label>
-        Accent color
+        <span data-i18n="addon.certifications.config.accent_color_label">${t("addon.certifications.config.accent_color_label", "Accent color")}</span>
         <input type="color" id="cert-cfg-accent" />
       </label>
-      <p class="field-note">Every certificate also always shows an "Issued &amp; verifiable via OpenCTF" line, regardless of the branding above.</p>
+      <p class="field-note" data-i18n="addon.certifications.config.always_shown_note">${t("addon.certifications.config.always_shown_note", 'Every certificate also always shows an "Issued & verifiable via OpenCTF" line, regardless of the branding above.')}</p>
       <div class="form-actions">
-        <button type="button" class="btn-primary small" id="cert-cfg-save">Save</button>
+        <button type="button" class="btn-primary small" id="cert-cfg-save" data-i18n="common.save">${t("common.save", "Save")}</button>
         <span class="form-result" id="cert-cfg-result"></span>
       </div>
     `;
@@ -63,7 +66,7 @@
           signer_title: container.querySelector("#cert-cfg-signer-title").value.trim(),
           accent_color: container.querySelector("#cert-cfg-accent").value,
         });
-        result.textContent = "Saved - live on every open client.";
+        result.textContent = t("common.saved_live", "Saved - live on every open client.");
         result.className = "form-result ok";
       } catch (err) {
         result.textContent = err.message;

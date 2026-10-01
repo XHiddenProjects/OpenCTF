@@ -1,0 +1,11 @@
+{
+  "addon.certifications.nav_label": "Certificaciones",
+  "addon.certifications.meta.name": "Certificaciones",
+  "addon.certifications.meta.description": "Emite certificados de finalización imprimibles y verificables a los jugadores - añade su propia pestaña y vista de Certificaciones. La marca (nombre/logo/firma/color de acento de la organización) se configura desde el botón de engranaje; el propio backend de la plataforma (server/app.py) almacena y verifica los certificados.",
+  "addon.certifications.config.org_name_label": "Nombre de la organización",
+  "addon.certifications.config.org_logo_label": "URL del logo de la organización (opcional)",
+  "addon.certifications.config.signer_name_label": "Nombre del firmante (opcional)",
+  "addon.certifications.config.signer_title_label": "Cargo del firmante (opcional)",
+  "addon.certifications.config.accent_color_label": "Color de acento",
+  "addon.certifications.config.always_shown_note": "Cada certificado también muestra siempre una línea \"Emitido y verificable a través de OpenCTF\", sin importar la marca anterior."
+}

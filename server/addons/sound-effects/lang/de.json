@@ -1,0 +1,5 @@
+{
+  "addon.sound-effects.meta.name": "Soundeffekte",
+  "addon.sound-effects.meta.description": "Spielt bei einer korrekten Flag-Einreichung einen kurzen Piepton ab (und bei einer falschen einen tieferen Ton). Aktivieren/Deaktivieren über den eigenen Schalter, nicht diese Konfiguration - der Zahnrad-Button enthält nur die Lautstärke. Rein synthetisiert - keine Audiodateien.",
+  "addon.sound-effects.config.volume_label": "Lautstärke"
+}

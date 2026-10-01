@@ -1,0 +1,14 @@
+{
+  "addon.core.live_connected_title": "Live updates connected",
+  "addon.core.live_disconnected_title": "Live updates disconnected - reconnecting...",
+  "addon.core.live_connected": "Live updates",
+  "addon.core.live_reconnecting": "Reconnecting...",
+  "addon.core.solved_toast": "Solved \"{title}\" for {points} pts!",
+  "addon.core.theme_updated": "The site theme was just updated by an admin.",
+  "addon.core.addon_enabled": "Addon enabled: {name}",
+  "addon.core.addon_disabled": "Addon disabled: {name}",
+  "addon.core.meta.name": "Core Toolkit",
+  "addon.core.meta.description": "Built-in functionality the rest of the platform relies on: solve toasts, a live connection indicator, and applying live theme/addon updates as an admin makes them. Always on.",
+  "addon.core.config.toasts_label": "Toast notification on solve",
+  "addon.core.config.dot_label": "Live-updates connection dot"
+}

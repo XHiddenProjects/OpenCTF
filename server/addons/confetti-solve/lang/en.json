@@ -1,0 +1,7 @@
+{
+  "addon.confetti-solve.meta.name": "Confetti on Solve",
+  "addon.confetti-solve.meta.description": "A short burst of confetti over the screen whenever a flag is submitted correctly. Particle count and colors are configurable.",
+  "addon.confetti-solve.config.count_label": "Particle count",
+  "addon.confetti-solve.config.colors_label": "Colors (comma-separated hex)",
+  "addon.confetti-solve.config.preview_btn": "Preview"
+}

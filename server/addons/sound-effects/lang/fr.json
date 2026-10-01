@@ -1,0 +1,5 @@
+{
+  "addon.sound-effects.meta.name": "Effets sonores",
+  "addon.sound-effects.meta.description": "Joue un court bip lors d'une soumission de drapeau correcte (et un ton plus grave pour une soumission incorrecte). Activez/désactivez-le depuis son interrupteur, pas depuis cette configuration - le bouton d'engrenage ne gère que le volume. Purement synthétisé - aucun fichier audio.",
+  "addon.sound-effects.config.volume_label": "Volume"
+}

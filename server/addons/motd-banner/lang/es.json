@@ -1,0 +1,7 @@
+{
+  "addon.motd-banner.dismiss": "Descartar",
+  "addon.motd-banner.meta.name": "Aviso del día",
+  "addon.motd-banner.meta.description": "Muestra un aviso del día descartable en la parte superior de la aplicación. El mensaje y el color se configuran desde el botón de engranaje.",
+  "addon.motd-banner.config.message_label": "Mensaje del aviso",
+  "addon.motd-banner.config.color_label": "Color del aviso"
+}

@@ -19,6 +19,8 @@ accounts/challenges). For a real migration, use Flask-Migrate/Alembic.
 
 import os
 import re
+import fnmatch
+import shlex
 import hashlib
 import hmac
 import json
@@ -45,6 +47,11 @@ from flask_jwt_extended import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy.exc import IntegrityError
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=False)
+
+import judge0_runner
 
 # ---------------------------------------------------------------------------
 # App / config
@@ -302,6 +309,14 @@ class Challenge(db.Model):
     # Never sent to the client directly - only walked server-side via
     # /api/challenges/<id>/terminal so the flag isn't visible in devtools.
     terminal_fs = db.Column(db.Text, nullable=True)
+    # JSON-encoded list of command names (e.g. ["cat"]) a terminal
+    # challenge author wants unavailable for *this* challenge specifically -
+    # every other terminal challenge still has the full command set. Used
+    # to force a particular technique (e.g. hiding `cat` on a
+    # password-cracking challenge so a wordlist can't just be read
+    # directly - the player has to actually run `john` against it) rather
+    # than relying on players' self-restraint. See run_terminal_command().
+    terminal_disabled_commands = db.Column(db.Text, nullable=True)
     # JSON-encoded sandboxed website behavior for web challenges.
     web_config = db.Column(db.Text, nullable=True)
     ai_config = db.Column(db.Text, nullable=True)
@@ -332,6 +347,7 @@ class Challenge(db.Model):
             "is_active": self.is_active,
             "type": self.type,
             "terminal_fs": self.terminal_fs,
+            "terminal_disabled_commands": self.terminal_disabled_commands,
             "web_config": self.web_config,
             "ai_config": self.ai_config,
             "quiz_config": self.quiz_config,
@@ -372,11 +388,424 @@ class SiteSetting(db.Model):
     value = db.Column(db.Text, nullable=False)
 
 
+class Language(db.Model):
+    """One installed UI language pack. `code` is a short identifier (an
+    ISO 639-1 code like "es" is the convention, but anything URL-safe
+    works) used both as the primary key and as the value stored under the
+    "active_language" SiteSetting / a user's own language preference.
+
+    `translations` is a flat JSON object of {key: translated string}.
+    Missing keys simply fall back to the English baseline on the client -
+    a language pack never has to be 100% complete to be usable."""
+
+    code = db.Column(db.String(20), primary_key=True)
+    name = db.Column(db.String(80), nullable=False)  # English name, e.g. "Spanish"
+    native_name = db.Column(db.String(80), nullable=False)  # e.g. "Español"
+    translations = db.Column(db.Text, nullable=False, default="{}")
+    # The built-in English pack can't be deleted from the admin panel -
+    # every other pack falls back to it for any key it doesn't translate.
+    is_builtin = db.Column(db.Boolean, nullable=False, default=False)
+    uploaded_by = db.Column(db.String(80), nullable=True)  # username, for display only
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self, include_translations=False, extra_overlay=None):
+        data = {
+            "code": self.code,
+            "name": self.name,
+            "native_name": self.native_name,
+            "is_builtin": self.is_builtin,
+            "uploaded_by": self.uploaded_by,
+            "key_count": len(json.loads(self.translations or "{}")),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_translations:
+            own = json.loads(self.translations or "{}")
+            # Addon/theme-provided keys (extra_overlay) fill in gaps; this
+            # pack's own stored keys always win a collision, so an admin
+            # can still override an addon's default translation for a key
+            # just by including that same key in their upload - same
+            # "the more specific source wins" precedence used everywhere
+            # else in this file (see _discover_extension_lang_overlay).
+            data["translations"] = {**(extra_overlay or {}), **own}
+        return data
+
+
 # Valid values for Certification.style - the Certifications addon's own
 # CSS (server/addons/certifications/style.css) has matching, differently
 # themed layouts for each of these. Kept here (not just client-side) so an
 # admin can't POST an arbitrary/unstyled value through the API.
 CERTIFICATION_STYLES = ("classic", "modern", "gold", "minimal", "royal", "cyber", "emerald", "sunburst")
+
+
+# ---------------------------------------------------------------------------
+# Built-in UI language packs.
+#
+# `BASE_TRANSLATIONS` (English) is the fallback every other pack is checked
+# against - the client falls back to this for any key a pack doesn't
+# translate, so a pack never has to be 100% complete to be usable. It's also
+# what an admin downloads from GET /api/languages/en as a starting point for
+# a new translation before uploading it from Admin -> Languages.
+#
+# Only a representative slice of the UI is wired up to these keys today
+# (see client/src/index.html's data-i18n attributes and the t() calls in
+# renderer.js) - see docs/LOCALIZATION.md for how to extend coverage.
+# ---------------------------------------------------------------------------
+
+BASE_TRANSLATIONS = {
+    "nav.challenges": "Challenges",
+    "nav.scoreboard": "Scoreboard",
+    "nav.profile": "Profile",
+    "nav.admin": "Admin",
+    "nav.logout": "Log out",
+    "auth.brand": "Lab CTF",
+    "auth.subtitle": "Sign in with your team credentials to see the challenge board.",
+    "auth.tab_signin": "Sign in",
+    "auth.tab_register": "Create account",
+    "auth.username": "Username",
+    "auth.password": "Password",
+    "auth.team": "Team",
+    "auth.team_independent": "Independent (no team)",
+    "auth.signin_btn": "Sign in",
+    "auth.register_btn": "Create account",
+    "common.save": "Save",
+    "common.cancel": "Cancel",
+    "common.delete": "Delete",
+    "common.install": "Install",
+    "common.upload": "Upload",
+    "common.close": "Close",
+    "common.loading": "Loading...",
+    "common.search_placeholder": "Search challenges...",
+    "settings.server_settings": "Server settings",
+    "challenge.category": "Category",
+    "challenge.points": "Points",
+    "challenge.difficulty": "Difficulty",
+    "challenge.hint": "Hint",
+    "challenge.submit_flag": "Submit flag",
+    "challenge.flag_placeholder": "OCTF{...}",
+    "challenge.correct": "Correct! Flag accepted.",
+    "challenge.incorrect": "Incorrect flag - try again.",
+    "challenge.rules": "Rules",
+    "scoreboard.title": "Scoreboard",
+    "scoreboard.team": "Team",
+    "scoreboard.score": "Score",
+    "scoreboard.rank": "Rank",
+    "profile.title": "Profile",
+    "profile.display_name": "Display name",
+    "profile.bio": "Biography",
+    "profile.avatar": "Avatar",
+    "admin.tab_challenges": "Challenges",
+    "admin.tab_users": "Users",
+    "admin.tab_teams": "Teams",
+    "admin.tab_extensions": "Addons & Themes",
+    "admin.tab_languages": "Languages",
+    "admin.new_challenge": "New challenge",
+    "admin.languages_intro": (
+        "Upload a JSON translation file to add or update a language. "
+        "Every player can pick any installed language from the dropdown - "
+        "missing translations simply fall back to English."
+    ),
+    "admin.language_code": "Language code (e.g. es, fr, de)",
+    "admin.language_name": "English name (e.g. Spanish)",
+    "admin.language_native_name": "Native name (e.g. Español)",
+    "admin.upload_language": "Upload language file (.json)",
+    "settings.language_label": "Language",
+    "challenge.devtools_tooltip": "Inspect (DevTools)",
+    "common.loading_config": "Loading current config...",
+    "common.saved_live": "Saved - live on every open client.",
+    "common.by_author": "by {name}",
+    "admin.toggle_enabled": "Enabled",
+    "admin.toggle_always_on": "Always on",
+    "admin.toggle_unavailable": "Unavailable",
+    "admin.configure_tooltip": "Configure {name}",
+    "admin.delete_tooltip": "Delete {name}",
+    "admin.confirm_delete_extension": 'Delete "{name}"? This removes its folder from the server and can\'t be undone.',
+    "admin.no_theme_option": "Default (no theme)",
+    "admin.no_addons_found": "No addons found on the server yet.",
+    "admin.theme_builtin_desc": "The built-in OpenCTF look - no theme file loaded.",
+    "admin.stat_users": "Users",
+    "admin.stat_teams": "Teams",
+    "admin.stat_challenges": "Challenges",
+    "admin.stat_correct_solves": "Correct solves",
+    "admin.stat_total_attempts": "Total attempts",
+    "admin.ollama_ready": "Ollama ready · {model}",
+    "admin.ollama_models_suffix": " · {count} model(s)",
+    "admin.ollama_model_missing": "Ollama online, model missing · run: ollama pull {model}",
+    "admin.ollama_offline": "Ollama offline · start Ollama at {url} and pull {model}",
+}
+
+# Two ready-to-use example packs, installed automatically on first boot -
+# same idea as the motd-banner addon / midnight-purple theme examples:
+# something real to look at (and re-upload/tweak) rather than an empty list.
+_EXAMPLE_LANGUAGE_PACKS = {
+    "es": {
+        "name": "Spanish",
+        "native_name": "Español",
+        "translations": {
+            "nav.challenges": "Retos",
+            "nav.scoreboard": "Marcador",
+            "nav.profile": "Perfil",
+            "nav.admin": "Administración",
+            "nav.logout": "Cerrar sesión",
+            "auth.brand": "CTF de Laboratorio",
+            "auth.subtitle": "Inicia sesión con las credenciales de tu equipo para ver los retos.",
+            "auth.tab_signin": "Iniciar sesión",
+            "auth.tab_register": "Crear cuenta",
+            "auth.username": "Usuario",
+            "auth.password": "Contraseña",
+            "auth.team": "Equipo",
+            "auth.team_independent": "Independiente (sin equipo)",
+            "auth.signin_btn": "Iniciar sesión",
+            "auth.register_btn": "Crear cuenta",
+            "common.save": "Guardar",
+            "common.cancel": "Cancelar",
+            "common.delete": "Eliminar",
+            "common.install": "Instalar",
+            "common.upload": "Subir",
+            "common.close": "Cerrar",
+            "common.loading": "Cargando...",
+            "common.search_placeholder": "Buscar retos...",
+            "challenge.category": "Categoría",
+            "challenge.points": "Puntos",
+            "challenge.difficulty": "Dificultad",
+            "challenge.hint": "Pista",
+            "challenge.submit_flag": "Enviar bandera",
+            "challenge.flag_placeholder": "OCTF{...}",
+            "challenge.correct": "¡Correcto! Bandera aceptada.",
+            "challenge.incorrect": "Bandera incorrecta - inténtalo de nuevo.",
+            "challenge.rules": "Reglas",
+            "scoreboard.title": "Marcador",
+            "scoreboard.team": "Equipo",
+            "scoreboard.score": "Puntuación",
+            "scoreboard.rank": "Posición",
+            "profile.title": "Perfil",
+            "profile.display_name": "Nombre para mostrar",
+            "profile.bio": "Biografía",
+            "profile.avatar": "Avatar",
+            "admin.tab_challenges": "Retos",
+            "admin.tab_users": "Usuarios",
+            "admin.tab_teams": "Equipos",
+            "admin.tab_extensions": "Complementos y temas",
+            "admin.tab_languages": "Idiomas",
+            "admin.new_challenge": "Nuevo reto",
+            "admin.languages_intro": "Sube un archivo de traducción JSON para añadir o actualizar un idioma. Cada jugador puede elegir cualquier idioma instalado desde el menú desplegable; las traducciones que falten simplemente recurren al inglés.",
+            "admin.language_code": "Código de idioma (p. ej. es, fr, de)",
+            "admin.language_name": "Nombre en inglés (p. ej. Spanish)",
+            "admin.language_native_name": "Nombre nativo (p. ej. Español)",
+            "admin.upload_language": "Subir archivo de idioma (.json)",
+            "settings.language_label": "Idioma",
+            "settings.server_settings": "Configuración del servidor",
+            "challenge.devtools_tooltip": "Inspeccionar (DevTools)",
+            "common.loading_config": "Cargando configuración actual...",
+            "common.saved_live": "Guardado - en vivo en cada cliente abierto.",
+            "common.by_author": "por {name}",
+            "admin.toggle_enabled": "Activado",
+            "admin.toggle_always_on": "Siempre activo",
+            "admin.toggle_unavailable": "No disponible",
+            "admin.configure_tooltip": "Configurar {name}",
+            "admin.delete_tooltip": "Eliminar {name}",
+            "admin.confirm_delete_extension": '¿Eliminar "{name}"? Esto elimina su carpeta del servidor y no se puede deshacer.',
+            "admin.no_theme_option": "Predeterminado (sin tema)",
+            "admin.no_addons_found": "Aún no se encontraron complementos en el servidor.",
+            "admin.theme_builtin_desc": "El aspecto predeterminado de OpenCTF - no se cargó ningún archivo de tema.",
+            "admin.stat_users": "Usuarios",
+            "admin.stat_teams": "Equipos",
+            "admin.stat_challenges": "Retos",
+            "admin.stat_correct_solves": "Resoluciones correctas",
+            "admin.stat_total_attempts": "Intentos totales",
+            "admin.ollama_ready": "Ollama listo · {model}",
+            "admin.ollama_models_suffix": " · {count} modelo(s)",
+            "admin.ollama_model_missing": "Ollama en línea, falta el modelo · ejecuta: ollama pull {model}",
+            "admin.ollama_offline": "Ollama sin conexión · inicia Ollama en {url} y descarga {model}",
+        },
+    },
+    "fr": {
+        "name": "French",
+        "native_name": "Français",
+        "translations": {
+            "nav.challenges": "Défis",
+            "nav.scoreboard": "Classement",
+            "nav.profile": "Profil",
+            "nav.admin": "Administration",
+            "nav.logout": "Se déconnecter",
+            "auth.brand": "CTF de laboratoire",
+            "auth.subtitle": "Connectez-vous avec les identifiants de votre équipe pour voir les défis.",
+            "auth.tab_signin": "Se connecter",
+            "auth.tab_register": "Créer un compte",
+            "auth.username": "Nom d'utilisateur",
+            "auth.password": "Mot de passe",
+            "auth.team": "Équipe",
+            "auth.team_independent": "Indépendant (sans équipe)",
+            "auth.signin_btn": "Se connecter",
+            "auth.register_btn": "Créer un compte",
+            "common.save": "Enregistrer",
+            "common.cancel": "Annuler",
+            "common.delete": "Supprimer",
+            "common.install": "Installer",
+            "common.upload": "Téléverser",
+            "common.close": "Fermer",
+            "common.loading": "Chargement...",
+            "common.search_placeholder": "Rechercher des défis...",
+            "challenge.category": "Catégorie",
+            "challenge.points": "Points",
+            "challenge.difficulty": "Difficulté",
+            "challenge.hint": "Indice",
+            "challenge.submit_flag": "Soumettre le drapeau",
+            "challenge.flag_placeholder": "OCTF{...}",
+            "challenge.correct": "Correct ! Drapeau accepté.",
+            "challenge.incorrect": "Drapeau incorrect - réessayez.",
+            "challenge.rules": "Règles",
+            "scoreboard.title": "Classement",
+            "scoreboard.team": "Équipe",
+            "scoreboard.score": "Score",
+            "scoreboard.rank": "Rang",
+            "profile.title": "Profil",
+            "profile.display_name": "Nom d'affichage",
+            "profile.bio": "Biographie",
+            "profile.avatar": "Avatar",
+            "admin.tab_challenges": "Défis",
+            "admin.tab_users": "Utilisateurs",
+            "admin.tab_teams": "Équipes",
+            "admin.tab_extensions": "Extensions et thèmes",
+            "admin.tab_languages": "Langues",
+            "admin.new_challenge": "Nouveau défi",
+            "admin.languages_intro": "Téléversez un fichier de traduction JSON pour ajouter ou mettre à jour une langue. Chaque joueur peut choisir n'importe quelle langue installée dans le menu déroulant - les traductions manquantes reviennent simplement à l'anglais.",
+            "admin.language_code": "Code de langue (p. ex. es, fr, de)",
+            "admin.language_name": "Nom en anglais (p. ex. Spanish)",
+            "admin.language_native_name": "Nom natif (p. ex. Français)",
+            "admin.upload_language": "Téléverser un fichier de langue (.json)",
+            "settings.language_label": "Langue",
+            "settings.server_settings": "Paramètres du serveur",
+            "challenge.devtools_tooltip": "Inspecter (DevTools)",
+            "common.loading_config": "Chargement de la configuration actuelle...",
+            "common.saved_live": "Enregistré - en direct sur chaque client ouvert.",
+            "common.by_author": "par {name}",
+            "admin.toggle_enabled": "Activé",
+            "admin.toggle_always_on": "Toujours actif",
+            "admin.toggle_unavailable": "Indisponible",
+            "admin.configure_tooltip": "Configurer {name}",
+            "admin.delete_tooltip": "Supprimer {name}",
+            "admin.confirm_delete_extension": 'Supprimer "{name}" ? Cela supprime son dossier du serveur et ne peut pas être annulé.',
+            "admin.no_theme_option": "Par défaut (aucun thème)",
+            "admin.no_addons_found": "Aucune extension trouvée sur le serveur pour l'instant.",
+            "admin.theme_builtin_desc": "L'apparence par défaut d'OpenCTF - aucun fichier de thème chargé.",
+            "admin.stat_users": "Utilisateurs",
+            "admin.stat_teams": "Équipes",
+            "admin.stat_challenges": "Défis",
+            "admin.stat_correct_solves": "Résolutions correctes",
+            "admin.stat_total_attempts": "Tentatives totales",
+            "admin.ollama_ready": "Ollama prêt · {model}",
+            "admin.ollama_models_suffix": " · {count} modèle(s)",
+            "admin.ollama_model_missing": "Ollama en ligne, modèle manquant · exécutez : ollama pull {model}",
+            "admin.ollama_offline": "Ollama hors ligne · démarrez Ollama sur {url} et téléchargez {model}",
+        },
+    },
+    "de": {
+        "name": "German",
+        "native_name": "Deutsch",
+        "translations": {
+            "nav.challenges": "Herausforderungen",
+            "nav.scoreboard": "Rangliste",
+            "nav.profile": "Profil",
+            "nav.admin": "Verwaltung",
+            "nav.logout": "Abmelden",
+            "auth.brand": "Lab CTF",
+            "auth.subtitle": "Melde dich mit den Zugangsdaten deines Teams an, um die Herausforderungen zu sehen.",
+            "auth.tab_signin": "Anmelden",
+            "auth.tab_register": "Konto erstellen",
+            "auth.username": "Benutzername",
+            "auth.password": "Passwort",
+            "auth.team": "Team",
+            "auth.team_independent": "Unabhängig (ohne Team)",
+            "auth.signin_btn": "Anmelden",
+            "auth.register_btn": "Konto erstellen",
+            "common.save": "Speichern",
+            "common.cancel": "Abbrechen",
+            "common.delete": "Löschen",
+            "common.install": "Installieren",
+            "common.upload": "Hochladen",
+            "common.close": "Schließen",
+            "common.loading": "Wird geladen...",
+            "common.search_placeholder": "Herausforderungen durchsuchen...",
+            "challenge.category": "Kategorie",
+            "challenge.points": "Punkte",
+            "challenge.difficulty": "Schwierigkeit",
+            "challenge.hint": "Hinweis",
+            "challenge.submit_flag": "Flag einreichen",
+            "challenge.flag_placeholder": "OCTF{...}",
+            "challenge.correct": "Richtig! Flag akzeptiert.",
+            "challenge.incorrect": "Falsches Flag - versuche es erneut.",
+            "challenge.rules": "Regeln",
+            "scoreboard.title": "Rangliste",
+            "scoreboard.team": "Team",
+            "scoreboard.score": "Punktzahl",
+            "scoreboard.rank": "Rang",
+            "profile.title": "Profil",
+            "profile.display_name": "Anzeigename",
+            "profile.bio": "Biografie",
+            "profile.avatar": "Avatar",
+            "admin.tab_challenges": "Herausforderungen",
+            "admin.tab_users": "Benutzer",
+            "admin.tab_teams": "Teams",
+            "admin.tab_extensions": "Add-ons & Themes",
+            "admin.tab_languages": "Sprachen",
+            "admin.new_challenge": "Neue Herausforderung",
+            "admin.languages_intro": (
+                "Lade eine JSON-Übersetzungsdatei hoch, um eine Sprache hinzuzufügen oder zu "
+                "aktualisieren. Jeder Spieler kann jede installierte Sprache aus dem Dropdown "
+                "wählen - fehlende Übersetzungen fallen einfach auf Englisch zurück."
+            ),
+            "admin.language_code": "Sprachcode (z. B. es, fr, de)",
+            "admin.language_name": "Englischer Name (z. B. Spanish)",
+            "admin.language_native_name": "Eigener Name (z. B. Deutsch)",
+            "admin.upload_language": "Sprachdatei hochladen (.json)",
+            "settings.language_label": "Sprache",
+            "settings.server_settings": "Servereinstellungen",
+            "challenge.devtools_tooltip": "Untersuchen (DevTools)",
+            "common.loading_config": "Aktuelle Konfiguration wird geladen...",
+            "common.saved_live": "Gespeichert - live auf jedem geöffneten Client.",
+            "common.by_author": "von {name}",
+            "admin.toggle_enabled": "Aktiviert",
+            "admin.toggle_always_on": "Immer aktiv",
+            "admin.toggle_unavailable": "Nicht verfügbar",
+            "admin.configure_tooltip": "{name} konfigurieren",
+            "admin.delete_tooltip": "{name} löschen",
+            "admin.confirm_delete_extension": '"{name}" löschen? Dadurch wird der Ordner vom Server entfernt und kann nicht rückgängig gemacht werden.',
+            "admin.no_theme_option": "Standard (kein Theme)",
+            "admin.no_addons_found": "Noch keine Add-ons auf dem Server gefunden.",
+            "admin.theme_builtin_desc": "Das integrierte OpenCTF-Design - es ist keine Theme-Datei geladen.",
+            "admin.stat_users": "Benutzer",
+            "admin.stat_teams": "Teams",
+            "admin.stat_challenges": "Herausforderungen",
+            "admin.stat_correct_solves": "Korrekte Lösungen",
+            "admin.stat_total_attempts": "Versuche insgesamt",
+            "admin.ollama_ready": "Ollama bereit · {model}",
+            "admin.ollama_models_suffix": " · {count} Modell(e)",
+            "admin.ollama_model_missing": "Ollama online, Modell fehlt · ausführen: ollama pull {model}",
+            "admin.ollama_offline": "Ollama offline · starte Ollama unter {url} und lade {model} herunter",
+        },
+    },
+}
+
+
+def seed_default_languages():
+    """Install the built-in English pack (source of truth/fallback) and, on
+    a fresh database, the two example packs above - same convenience
+    pattern as the example addon/theme. Idempotent: never overwrites a
+    pack an admin has already customized."""
+    if not Language.query.get("en"):
+        db.session.add(Language(
+            code="en", name="English", native_name="English",
+            translations=json.dumps(BASE_TRANSLATIONS), is_builtin=True,
+        ))
+    if Language.query.count() <= 1:  # fresh install - just the "en" row above (or none yet)
+        for code, pack in _EXAMPLE_LANGUAGE_PACKS.items():
+            if not Language.query.get(code):
+                db.session.add(Language(
+                    code=code, name=pack["name"], native_name=pack["native_name"],
+                    translations=json.dumps(pack["translations"]), is_builtin=False,
+                ))
+    db.session.commit()
 
 
 class Certification(db.Model):
@@ -508,6 +937,75 @@ def discover_addons():
 
 def discover_themes():
     return _discover_extensions(THEMES_DIR, "theme.json", ("name", "version", "entry"))
+
+
+def _load_json_file(path):
+    """Best-effort JSON read - missing file or invalid JSON both just mean
+    "nothing to contribute here", same silent-skip tolerance as
+    _discover_extensions(), so one broken lang file can never take the
+    whole translation system down."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def extension_lang_dirs():
+    """Every `lang/` folder currently on disk: one per *discovered* addon
+    and one per *discovered* theme - deliberately not scoped to "enabled"
+    or "active" only. The admin catalog (Admin -> Addons & Themes) needs
+    a disabled addon's or an inactive theme's own name/description/
+    config-screen labels translated too, since an admin browses and
+    manages all of them, not just the currently-running ones. A few
+    unused keys sitting in CURRENT_TRANSLATIONS for something that's off
+    is harmless - its own runtime UI simply isn't rendered while it's
+    off, so nothing extra actually shows up anywhere. Order matters only
+    in that a later source in the list wins a key collision in
+    extension_lang_overlay() below (sorted for a stable, deterministic
+    result regardless of directory listing order)."""
+    dirs = [os.path.join(ADDONS_DIR, aid, "lang") for aid in sorted(discover_addons())]
+    dirs += [os.path.join(THEMES_DIR, tid, "lang") for tid in sorted(discover_themes())]
+    return dirs
+
+
+def extension_lang_overlay(lang_code):
+    """Merge every discovered addon's and theme's own
+    `lang/<lang_code>.json` file (if it ships one) into a single flat
+    overlay dict for that language code.
+
+    This is what lets an addon or theme own its own translated strings
+    instead of every key living in one central catalog: drop a `lang/`
+    folder next to its manifest (`addon.json` / `theme.json`) containing
+    one flat `{"key": "text"}` file per language code it supports (see
+    server/addons/core/lang/en.json for a working example), and those
+    keys become available through the normal t() / [data-i18n] system -
+    no central registration needed, and it doesn't matter whether that
+    addon is currently enabled or that theme is currently active (see
+    extension_lang_dirs() above for why). A file for a language code
+    that isn't installed at all is simply never read since nothing ever
+    asks for that code.
+
+    By convention (not enforced here) an addon/theme can also translate
+    its own catalog listing - the name and description an admin sees in
+    Admin -> Addons & Themes - via `addon.<id>.meta.name` /
+    `addon.<id>.meta.description` (or `theme.<id>.meta.*`), and its own
+    config-screen field labels via `addon.<id>.config.*`. See
+    docs/LOCALIZATION.md.
+
+    Missing files, files with non-string values, and folders that don't
+    exist are all silently skipped, the same tolerance _discover_extensions()
+    already applies to manifests - a broken lang file should never take
+    down the whole translation system, just fail to contribute.
+    """
+    overlay = {}
+    for lang_dir in extension_lang_dirs():
+        data = _load_json_file(os.path.join(lang_dir, f"{lang_code}.json"))
+        if isinstance(data, dict):
+            overlay.update({k: v for k, v in data.items() if isinstance(v, str)})
+    return overlay
 
 
 # ---------------------------------------------------------------------------
@@ -864,55 +1362,438 @@ def _resolve(tree, cwd, target):
     return node, "/" + "/".join(resolved)
 
 
-def run_terminal_command(tree, cwd, raw_command):
+def _walk_files(tree, base=""):
+    """Yields (absolute_path, content) for every *file* (not directory)
+    anywhere under tree - used by `grep -r` and `find`."""
+    for name, node in tree.items():
+        path = f"{base}/{name}"
+        if isinstance(node, dict):
+            yield from _walk_files(node, path)
+        else:
+            yield path, node
+
+
+def _detect_filetype(name, content):
+    """A small `file`-style guesser. Challenge authors can make `file` and
+    `strings` genuinely useful (rather than `cat` spoiling everything) by
+    giving a "binary" file's content a real magic-byte prefix, e.g.
+    "\\x7fELF\\x02\\x01\\x01\\x00" + "...garbage bytes..." + an embedded
+    flag/string - `cat` dumps that as unreadable noise, `file` recognizes
+    the magic bytes, and `strings` pulls the readable parts back out,
+    same as the real tools would."""
+    lower = name.lower()
+    if content.startswith("\x7fELF"):
+        return "ELF 64-bit LSB executable, x86-64, dynamically linked, stripped"
+    if content.startswith("MZ"):
+        return "PE32+ executable (console) x86-64, for MS Windows"
+    if content.startswith("\x89PNG"):
+        return "PNG image data"
+    if content.startswith("\xff\xd8\xff"):
+        return "JPEG image data"
+    if content.startswith("PK\x03\x04"):
+        return "Zip archive data"
+    if lower.endswith((".pcap", ".pcapng")):
+        return "tcpdump capture file (little-endian)"
+    if lower.endswith((".key",)) and "PRIVATE KEY" in content:
+        return "OpenSSH private key"
+    printable = sum(1 for c in content if c == "\n" or c == "\t" or 32 <= ord(c) < 127)
+    ratio = printable / len(content) if content else 1.0
+    return "ASCII text" if ratio > 0.95 else "data"
+
+
+def _strip_flags(tokens):
+    """Splits a token list into (flags, rest), where `flags` is every
+    leading "-x"-style token (order-independent, so "-r -i" and "-ri" both
+    just need to be present - real grep supports -ri too, but this toy
+    interpreter only recognizes single-letter flags given separately or
+    combined in one token starting with '-')."""
+    flags = set()
+    rest = []
+    for tok in tokens:
+        if tok.startswith("-") and tok != "-" and not rest:
+            flags.update(tok[1:])
+        else:
+            rest.append(tok)
+    return flags, rest
+
+
+def run_terminal_command(tree, cwd, raw_command, disabled_commands=None):
+    disabled = {c.lower() for c in (disabled_commands or [])}
+
     raw_command = (raw_command or "").strip()
     if not raw_command:
         return "", cwd
 
-    parts = raw_command.split(maxsplit=1)
-    cmd = parts[0].lower()
-    arg = parts[1].strip() if len(parts) > 1 else ""
+    try:
+        tokens = shlex.split(raw_command)
+    except ValueError:
+        return "syntax error: unmatched quote", cwd
+    if not tokens:
+        return "", cwd
+    cmd = tokens[0].lower()
+    args = tokens[1:]
+
+    # A challenge can disable specific commands for itself (see
+    # Challenge.terminal_disabled_commands) to force a particular
+    # technique instead of a shortcut - e.g. hiding `cat` on a
+    # password-cracking challenge so the wordlist can't just be read
+    # directly, forcing an actual `john` run. Every other terminal
+    # challenge is unaffected. `help` itself is never blockable - it
+    # just stops advertising whatever's disabled, see below - so a
+    # player can always discover what *is* available.
+    if cmd != "help" and cmd in disabled:
+        return f"{cmd}: command not found (try 'help')", cwd
 
     if cmd == "help":
+        lines = [
+            ("ls", "  ls [-l] [path]           list a directory"),
+            ("cd", "  cd <path>                change directory"),
+            ("cat", "  cat <file>                print a file's contents"),
+            ("pwd", "  pwd                       print the working directory"),
+            ("grep", "  grep [-i] [-r] [-n] <pattern> <path>   search file contents"),
+            ("find", "  find <path> -name <glob> search for files by name"),
+            ("file", "  file <file>               guess a file's type"),
+            ("strings", "  strings <file>            print printable runs from a file"),
+            ("head", "  head|tail [-n N] <file>   print the first/last N lines"),
+            ("wc", "  wc <file>                 count lines/words/bytes"),
+            ("chmod", "  chmod <mode> <file>       change a file's permissions"),
+            ("john", "  john --wordlist=<file> <hashfile>   crack hashes from a wordlist"),
+            ("nmap", "  nmap [-p <ports>] [-sV] <target>    scan a simulated host"),
+        ]
+        available = [text for name, text in lines if name not in disabled]
         return (
-            "Available commands: ls [path], cd <path>, cat <file>, pwd, help\n"
-            "Tip: paths can be relative (notes.txt) or absolute (/home/user/notes.txt)."
+            "Available commands:\n"
+            + "\n".join(available)
+            + "\nTip: paths can be relative (notes.txt) or absolute (/home/user/notes.txt)."
         ), cwd
 
     if cmd == "pwd":
         return cwd, cwd
 
     if cmd == "ls":
-        target = arg or "."
+        flags, rest = _strip_flags(args)
+        target = rest[0] if rest else "."
         node, norm = _resolve(tree, cwd, target)
         if node is None:
             return f"ls: cannot access '{target}': No such file or directory", cwd
         if isinstance(node, dict):
             if not node:
                 return "(empty directory)", cwd
-            entries = sorted(
-                (name + "/" if isinstance(val, dict) else name)
-                for name, val in node.items()
-            )
+            names = sorted(node.keys())
+            if "l" in flags:
+                lines = []
+                for name in names:
+                    val = node[name]
+                    if isinstance(val, dict):
+                        lines.append(f"drwxr-xr-x  {name}/")
+                    else:
+                        lines.append(f"-rw-r--r--  {len(val):>6}  {name}")
+                return "\n".join(lines), cwd
+            entries = [(n + "/" if isinstance(node[n], dict) else n) for n in names]
             return "  ".join(entries), cwd
         return target, cwd  # ls on a file just echoes its name
 
     if cmd == "cd":
-        target = arg or "/"
+        target = args[0] if args else "/"
         node, norm = _resolve(tree, cwd, target)
         if node is None or not isinstance(node, dict):
             return f"cd: no such directory: {target}", cwd
         return "", norm
 
     if cmd == "cat":
-        if not arg:
+        if not args:
             return "cat: missing file operand", cwd
-        node, norm = _resolve(tree, cwd, arg)
+        node, norm = _resolve(tree, cwd, args[0])
         if node is None:
-            return f"cat: {arg}: No such file or directory", cwd
+            return f"cat: {args[0]}: No such file or directory", cwd
         if isinstance(node, dict):
-            return f"cat: {arg}: Is a directory", cwd
+            return f"cat: {args[0]}: Is a directory", cwd
         return node, cwd
+
+    if cmd == "file":
+        if not args:
+            return "file: missing file operand", cwd
+        node, norm = _resolve(tree, cwd, args[0])
+        if node is None:
+            return f"file: cannot open '{args[0]}' (No such file or directory)", cwd
+        if isinstance(node, dict):
+            return f"{args[0]}: directory", cwd
+        return f"{args[0]}: {_detect_filetype(args[0], node)}", cwd
+
+    if cmd == "strings":
+        if not args:
+            return "strings: missing file operand", cwd
+        node, norm = _resolve(tree, cwd, args[0])
+        if node is None:
+            return f"strings: '{args[0]}': No such file or directory", cwd
+        if isinstance(node, dict):
+            return f"strings: {args[0]}: Is a directory", cwd
+        found = re.findall(r"[ -~]{4,}", node)
+        return ("\n".join(found) if found else ""), cwd
+
+    if cmd in ("head", "tail"):
+        flags_tokens, rest = [], []
+        n = 10
+        i = 0
+        while i < len(args):
+            if args[i] == "-n" and i + 1 < len(args):
+                try:
+                    n = int(args[i + 1])
+                except ValueError:
+                    pass
+                i += 2
+            else:
+                rest.append(args[i])
+                i += 1
+        if not rest:
+            return f"{cmd}: missing file operand", cwd
+        node, norm = _resolve(tree, cwd, rest[0])
+        if node is None:
+            return f"{cmd}: cannot open '{rest[0]}' for reading: No such file or directory", cwd
+        if isinstance(node, dict):
+            return f"{cmd}: error reading '{rest[0]}': Is a directory", cwd
+        lines = node.split("\n")
+        return "\n".join(lines[:n] if cmd == "head" else lines[-n:]), cwd
+
+    if cmd == "wc":
+        if not args:
+            return "wc: missing file operand", cwd
+        node, norm = _resolve(tree, cwd, args[0])
+        if node is None:
+            return f"wc: {args[0]}: No such file or directory", cwd
+        if isinstance(node, dict):
+            return f"wc: {args[0]}: Is a directory", cwd
+        lines = node.count("\n") + (1 if node and not node.endswith("\n") else 0)
+        words = len(node.split())
+        chars = len(node.encode("utf-8"))
+        return f"{lines:>4} {words:>4} {chars:>4} {args[0]}", cwd
+
+    if cmd == "grep":
+        flags, rest = _strip_flags(args)
+        if not rest:
+            return "grep: missing pattern", cwd
+        pattern = rest[0]
+        target = rest[1] if len(rest) > 1 else "."
+        node, norm = _resolve(tree, cwd, target)
+        if node is None:
+            return f"grep: {target}: No such file or directory", cwd
+        re_flags = re.IGNORECASE if "i" in flags else 0
+        try:
+            compiled = re.compile(re.escape(pattern), re_flags) if "E" not in flags else re.compile(pattern, re_flags)
+        except re.error:
+            return f"grep: invalid pattern '{pattern}'", cwd
+
+        results = []
+        if isinstance(node, dict):
+            if "r" not in flags:
+                return f"grep: {target}: Is a directory (use -r to search recursively)", cwd
+            for path, content in _walk_files(node, norm.rstrip("/")):
+                for i, line in enumerate(content.split("\n"), start=1):
+                    if compiled.search(line):
+                        prefix = f"{path}:{i}:" if "n" in flags else f"{path}:"
+                        results.append(f"{prefix}{line}")
+        else:
+            for i, line in enumerate(node.split("\n"), start=1):
+                if compiled.search(line):
+                    prefix = f"{i}:" if "n" in flags else ""
+                    results.append(f"{prefix}{line}")
+        return ("\n".join(results) if results else ""), cwd
+
+    if cmd == "find":
+        flags = set()
+        path = "."
+        name_pattern = None
+        i = 0
+        positional_seen = False
+        while i < len(args):
+            if args[i] == "-name" and i + 1 < len(args):
+                name_pattern = args[i + 1]
+                i += 2
+            elif not positional_seen:
+                path = args[i]
+                positional_seen = True
+                i += 1
+            else:
+                i += 1
+        node, norm = _resolve(tree, cwd, path)
+        if node is None or not isinstance(node, dict):
+            return f"find: '{path}': No such file or directory", cwd
+        matches = []
+        for fpath, _content in _walk_files(node, norm.rstrip("/")):
+            fname = fpath.rsplit("/", 1)[-1]
+            if name_pattern is None or fnmatch.fnmatch(fname, name_pattern):
+                matches.append(fpath)
+        # also match directories by name, same as real find
+        def _walk_dirs(subtree, base):
+            for dname, val in subtree.items():
+                if isinstance(val, dict):
+                    dpath = f"{base}/{dname}"
+                    if name_pattern is None or fnmatch.fnmatch(dname, name_pattern):
+                        matches.append(dpath)
+                    _walk_dirs(val, dpath)
+        _walk_dirs(node, norm.rstrip("/"))
+        return ("\n".join(sorted(matches)) if matches else ""), cwd
+
+    if cmd == "chmod":
+        if len(args) < 2:
+            return "chmod: missing operand", cwd
+        node, norm = _resolve(tree, cwd, args[1])
+        if node is None:
+            return f"chmod: cannot access '{args[1]}': No such file or directory", cwd
+        return "", cwd  # cosmetic - real chmod is silent on success too
+
+    if cmd == "john":
+        # Toy dictionary-attack simulator: john --wordlist=<file> <hashfile>
+        # Hash file lines look like "user:hexdigest"; the algorithm is
+        # auto-detected from the digest length (32=md5, 40=sha1, 64=sha256).
+        # Nothing here shells out or touches real crypto libraries beyond
+        # hashlib, and it only ever operates on the sandboxed fake files
+        # baked into a challenge's terminal_fs - never real files.
+        wordlist_path = None
+        hashfile_path = None
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if a.startswith("--wordlist="):
+                wordlist_path = a.split("=", 1)[1]
+                i += 1
+            elif a in ("--wordlist", "-w") and i + 1 < len(args):
+                wordlist_path = args[i + 1]
+                i += 2
+            elif a.startswith("-"):
+                i += 1  # ignore other flags this toy doesn't implement (--format=, --rules, ...)
+            else:
+                hashfile_path = a
+                i += 1
+
+        if not wordlist_path or not hashfile_path:
+            return (
+                "Usage: john --wordlist=<wordlist file> <hash file>\n"
+                "(this sandboxed `john` only runs dictionary attacks)"
+            ), cwd
+
+        wl_node, _ = _resolve(tree, cwd, wordlist_path)
+        if wl_node is None:
+            return f"john: cannot open wordlist file {wordlist_path}: No such file or directory", cwd
+        if isinstance(wl_node, dict):
+            return f"john: {wordlist_path}: Is a directory", cwd
+
+        hf_node, _ = _resolve(tree, cwd, hashfile_path)
+        if hf_node is None:
+            return f"john: cannot open {hashfile_path}: No such file or directory", cwd
+        if isinstance(hf_node, dict):
+            return f"john: {hashfile_path}: Is a directory", cwd
+
+        candidates = [w for w in wl_node.split("\n") if w.strip()]
+        entries = []
+        for line in hf_node.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if ":" in line:
+                user, _, h = line.rpartition(":")
+            else:
+                user, h = "?", line
+            entries.append((user.strip() or "?", h.strip()))
+
+        def _guess_algo(h):
+            if len(h) == 32:
+                return hashlib.md5
+            if len(h) == 40:
+                return hashlib.sha1
+            if len(h) == 64:
+                return hashlib.sha256
+            return None
+
+        cracked = []
+        for user, h in entries:
+            algo = _guess_algo(h)
+            if algo is None:
+                continue
+            for word in candidates:
+                if algo(word.encode()).hexdigest() == h.lower():
+                    cracked.append((word, user))
+                    break
+
+        left = len(entries) - len(cracked)
+        lines = [
+            "Using default input encoding: UTF-8",
+            f"Loaded {len(entries)} password hash{'es' if len(entries) != 1 else ''} ({hashfile_path})",
+        ]
+        for word, user in cracked:
+            lines.append(f"{word}          ({user})")
+        if cracked:
+            lines.append(f"{len(cracked)}g 0:00:00:03 DONE ({len(cracked)}g/s)")
+            lines.append(f"{len(cracked)} password hash{'es' if len(cracked) != 1 else ''} cracked, {left} left")
+            lines.append('Use "john --show <hashfile>" to display all cracked passwords reliably')
+        else:
+            lines.append("0g 0:00:00:03 DONE (0g/s)")
+            lines.append(f"0 password hashes cracked, {left} left")
+        return "\n".join(lines), cwd
+
+    if cmd == "nmap":
+        # Toy scan simulator: nmap [-p <ports>] [-sV] <target>. A challenge
+        # author pre-writes the "scan result" as plain text at the
+        # conventional path /network/scans/<target>.nmap inside terminal_fs;
+        # this just looks that file up and formats it like real nmap output.
+        # No real sockets are opened and no real network is touched.
+        flags = set()
+        ports_filter = None
+        target = None
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if a == "-sV":
+                flags.add("sV")
+                i += 1
+            elif a == "-p" and i + 1 < len(args):
+                ports_filter = args[i + 1]
+                i += 2
+            elif a.startswith("-p") and len(a) > 2:
+                ports_filter = a[2:]
+                i += 1
+            elif a.startswith("-"):
+                i += 1  # ignore other real-nmap flags this toy doesn't implement (-Pn, -A, ...)
+            else:
+                target = a
+                i += 1
+
+        if not target:
+            return "Usage: nmap [-p <ports>] [-sV] <target>", cwd
+
+        scan_node, _ = _resolve(tree, "/", f"/network/scans/{target}.nmap")
+        if scan_node is None or isinstance(scan_node, dict):
+            return (
+                "Starting Nmap 7.94 ( https://nmap.org )\n"
+                "Note: Host seems down. If it is really up, but blocked by our ping "
+                "probes, try -Pn\n"
+                "Nmap done: 1 IP address (0 hosts up) scanned in 3.10 seconds"
+            ), cwd
+
+        wanted_ports = {p.strip() for p in ports_filter.split(",") if p.strip()} if ports_filter else None
+
+        port_lines = []
+        for line in scan_node.split("\n"):
+            line = line.rstrip()
+            if not line:
+                continue
+            cols = line.split(None, 3)  # PORT STATE SERVICE [VERSION...]
+            if len(cols) < 3 or "/" not in cols[0]:
+                continue
+            port_num = cols[0].split("/")[0]
+            if wanted_ports and port_num not in wanted_ports:
+                continue
+            port_lines.append(line if "sV" in flags else " ".join(cols[:3]))
+
+        header = "PORT     STATE SERVICE" + ("       VERSION" if "sV" in flags else "")
+        body = "\n".join(port_lines) if port_lines else "(no ports matched filter)"
+        return (
+            f"Starting Nmap 7.94 ( https://nmap.org )\n"
+            f"Nmap scan report for {target}\n"
+            f"Host is up (0.0012s latency).\n\n"
+            f"{header}\n{body}\n\n"
+            "Nmap done: 1 IP address (1 host up) scanned in 0.42 seconds"
+        ), cwd
 
     return f"{cmd}: command not found (try 'help')", cwd
 
@@ -1058,7 +1939,7 @@ def list_challenges():
             "id": c.id,
             "title": c.title,
             "category": c.category,
-            "description": c.description,
+            "description": _CODING_TASK_RE.sub("", c.description or "").strip(),
             "points": c.points,
             "difficulty": c.difficulty,
             "hint": c.hint,
@@ -1158,6 +2039,152 @@ def submit_flag():
     return jsonify(correct=correct)
 
 
+# Mirrors the [[coding-task]]...[[/coding-task]] block format the code-
+# challenge addon's client-side TASK_RE looks for (see that addon's
+# addon.js) - same regex, so a challenge author only has to think about
+# one block format; every language is executed server-side via Judge0.
+_CODING_TASK_RE = re.compile(r"\[\[coding-task\]\]([\s\S]*?)\[\[/coding-task\]\]")
+
+
+def _extract_coding_task(description):
+    match = _CODING_TASK_RE.search(description or "")
+    if not match:
+        return None
+    try:
+        task = json.loads(match.group(1))
+    except ValueError:
+        return None
+    if not isinstance(task, dict):
+        return None
+    if not isinstance(task.get("function_name"), str) or not isinstance(
+        task.get("tests"), list
+    ) or not task["tests"]:
+        return None
+    return task
+
+
+@app.get("/api/challenges/<int:challenge_id>/coding-task")
+@jwt_required()
+def get_coding_task(challenge_id):
+    challenge = Challenge.query.get(challenge_id)
+    if not challenge or not challenge.is_active:
+        return jsonify(error="challenge not found"), 404
+    task = _extract_coding_task(challenge.description)
+    if not task:
+        return jsonify(error="this challenge has no coding-task"), 404
+    public_fields = (
+        "function_name", "language", "languages", "starter_code",
+        "starter_code_by_language", "parameter_names", "parameter_types",
+        "return_type", "instructions", "tests",
+    )
+    return jsonify({key: task[key] for key in public_fields if key in task})
+
+
+# In-memory sliding-window limiter for /code-run: each Judge0 call spins
+# up real sandboxed execution on a shared instance, so this is worth
+# throttling independently of the flag-submission rate limit above. Not
+# distributed-safe (per-process only) - fine for this app's normal single
+# -process deployment; move to a Submission-style DB table (like the flag
+# rate limit) first if you run this behind multiple workers.
+_CODE_RUN_LIMIT = 15
+_CODE_RUN_WINDOW_S = 300
+_code_run_attempts = {}
+_code_run_lock = threading.Lock()
+
+
+def _code_run_rate_limited(user_id):
+    now = datetime.utcnow().timestamp()
+    with _code_run_lock:
+        attempts = [t for t in _code_run_attempts.get(user_id, []) if now - t < _CODE_RUN_WINDOW_S]
+        if len(attempts) >= _CODE_RUN_LIMIT:
+            _code_run_attempts[user_id] = attempts
+            return True
+        attempts.append(now)
+        _code_run_attempts[user_id] = attempts
+        return False
+
+
+@app.post("/api/challenges/<int:challenge_id>/code-run")
+@jwt_required()
+def code_challenge_run(challenge_id):
+    """Server-side execution for the Code Challenge Editor addon's Run
+    button. Proxies all supported languages to Judge0 - see
+    judge0_runner.py for the supported harnesses and sandbox limits.
+    """
+    user = current_user()
+    if _code_run_rate_limited(user.id):
+        return jsonify(error="too many runs, try again in a few minutes"), 429
+
+    challenge = Challenge.query.get(challenge_id)
+    if not challenge or not challenge.is_active:
+        return jsonify(error="challenge not found"), 404
+
+    task = _extract_coding_task(challenge.description)
+    if not task:
+        return jsonify(error="this challenge has no coding-task"), 404
+
+    data = request.get_json(force=True) or {}
+    language = judge0_runner.normalize_language(data.get("language"))
+    code = data.get("code") or ""
+
+    configured_languages = task.get("languages")
+    has_typed_signature = isinstance(task.get("parameter_types"), list) and isinstance(task.get("return_type"), str)
+    task_supported_languages = (
+        judge0_runner.SUPPORTED_LANGUAGES
+        if has_typed_signature
+        else judge0_runner.SUPPORTED_DYNAMIC_LANGUAGES
+    )
+    if not isinstance(configured_languages, list):
+        configured_languages = task_supported_languages
+    enabled_languages = {
+        judge0_runner.normalize_language(item)
+        for item in configured_languages
+        if isinstance(item, str)
+    }
+    enabled_languages.intersection_update(task_supported_languages)
+    if not enabled_languages:
+        fallback_language = judge0_runner.normalize_language(task.get("language") or "javascript")
+        enabled_languages.add(
+            fallback_language
+            if fallback_language in task_supported_languages
+            else "javascript"
+        )
+    if language not in enabled_languages:
+        return jsonify(error="that language is not enabled for this challenge"), 400
+
+    if not isinstance(code, str) or not code.strip():
+        return jsonify(error="code is required"), 400
+    if len(code) > 20_000:
+        return jsonify(error="code is too long"), 400
+    if language not in judge0_runner.SUPPORTED_LANGUAGES:
+        return jsonify(
+            error=(
+                f"'{language}' isn't supported here. Supported: "
+                f"{', '.join(judge0_runner.SUPPORTED_LANGUAGES)}."
+            )
+        ), 400
+
+    try:
+        results = judge0_runner.run_coding_task(
+            language=language,
+            player_code=code,
+            function_name=task["function_name"],
+            tests=task["tests"],
+            parameter_types=task.get("parameter_types"),
+            return_type=task.get("return_type"),
+        )
+    except judge0_runner.Judge0Unavailable as exc:
+        return jsonify(error=str(exc)), 503
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+    all_passed = bool(results) and all(r["passed"] for r in results)
+    response = {"results": results, "all_passed": all_passed}
+    if all_passed:
+        response["flag"] = task["flag"]
+    return jsonify(response)
+
+
 @app.post("/api/challenges/<int:challenge_id>/terminal")
 @jwt_required()
 def terminal_command(challenge_id):
@@ -1170,6 +2197,13 @@ def terminal_command(challenge_id):
     except json.JSONDecodeError:
         return jsonify(error="challenge misconfigured (invalid filesystem)"), 500
 
+    try:
+        disabled_commands = json.loads(challenge.terminal_disabled_commands or "[]")
+        if not isinstance(disabled_commands, list):
+            disabled_commands = []
+    except json.JSONDecodeError:
+        disabled_commands = []
+
     data = request.get_json(force=True)
     cwd = data.get("cwd") or "/"
     command = data.get("command") or ""
@@ -1178,7 +2212,7 @@ def terminal_command(challenge_id):
     if len(command) > 200:
         return jsonify(error="command too long"), 400
 
-    output, new_cwd = run_terminal_command(tree, cwd, command)
+    output, new_cwd = run_terminal_command(tree, cwd, command, disabled_commands)
     if challenge.flag_template and current_user().team_id:
         output = output.replace(
             challenge.flag_template,
@@ -1400,6 +2434,24 @@ def site_config():
             if aid in enabled
         ],
     )
+
+
+@app.get("/api/languages")
+def list_languages():
+    """Public and unauthenticated for the same reason /api/site-config is:
+    the language picker has to work on the login screen too, before we
+    know whether the visitor will end up logged in."""
+    langs = Language.query.order_by(Language.is_builtin.desc(), Language.name).all()
+    return jsonify([lang.to_dict() for lang in langs])
+
+
+@app.get("/api/languages/<code>")
+def get_language(code):
+    lang = Language.query.get(code)
+    if not lang:
+        abort(404)
+    return jsonify(lang.to_dict(include_translations=True, extra_overlay=extension_lang_overlay(code)))
+
 
 
 @app.get("/api/themes/<theme_id>/<path:filename>")
@@ -1714,6 +2766,91 @@ def admin_delete_theme(theme_id):
     return jsonify(deleted=True)
 
 
+@app.get("/api/admin/languages")
+@jwt_required()
+def admin_list_languages():
+    err = admin_required()
+    if err:
+        return err
+    langs = Language.query.order_by(Language.is_builtin.desc(), Language.name).all()
+    return jsonify([lang.to_dict() for lang in langs])
+
+
+@app.post("/api/admin/languages/upload")
+@jwt_required()
+def admin_upload_language():
+    """Add or update a language pack. Expects multipart/form-data: a
+    `file` field holding a flat {key: translated string} JSON object, plus
+    `code`, `name`, and optionally `native_name` form fields. Re-uploading
+    an existing code replaces that pack's translations in place, the same
+    "re-upload to update" convenience as addons/themes."""
+    err = admin_required()
+    if err:
+        return err
+
+    code = (request.form.get("code") or "").strip().lower()
+    name = (request.form.get("name") or "").strip()
+    native_name = (request.form.get("native_name") or "").strip() or name
+
+    if not re.fullmatch(r"[a-z]{2}(-[a-z0-9]{2,8})?", code):
+        return jsonify(error='language code must look like "es" or "pt-br"'), 400
+    if not name:
+        return jsonify(error="a display name is required"), 400
+    if code == "en" and Language.query.get("en") and Language.query.get("en").is_builtin:
+        return jsonify(error='"en" is the built-in fallback language and can\'t be overwritten'), 400
+
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return jsonify(error="no translation file uploaded"), 400
+    if not uploaded.filename.lower().endswith(".json"):
+        return jsonify(error="expected a .json file"), 400
+
+    raw = uploaded.read(2 * 1024 * 1024 + 1)  # 2MB cap, well beyond any real translation file
+    if len(raw) > 2 * 1024 * 1024:
+        return jsonify(error="translation file is too large"), 400
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return jsonify(error="file is not valid JSON"), 400
+    if not isinstance(parsed, dict) or not all(isinstance(v, str) for v in parsed.values()):
+        return jsonify(error="translation file must be a flat object of string values"), 400
+    if not all(isinstance(k, str) for k in parsed.keys()):
+        return jsonify(error="translation file must be a flat object of string values"), 400
+
+    existing = Language.query.get(code)
+    if existing:
+        existing.name = name
+        existing.native_name = native_name
+        existing.translations = json.dumps(parsed)
+        existing.uploaded_by = current_user().username
+    else:
+        db.session.add(Language(
+            code=code, name=name, native_name=native_name,
+            translations=json.dumps(parsed), is_builtin=False,
+            uploaded_by=current_user().username,
+        ))
+    db.session.commit()
+    broadcast_event("language_changed", {"code": code, "action": "updated" if existing else "added"})
+    return jsonify(code=code, name=name, native_name=native_name, key_count=len(parsed))
+
+
+@app.delete("/api/admin/languages/<code>")
+@jwt_required()
+def admin_delete_language(code):
+    err = admin_required()
+    if err:
+        return err
+    lang = Language.query.get(code)
+    if not lang:
+        return jsonify(error="language not found"), 404
+    if lang.is_builtin:
+        return jsonify(error="the built-in English pack can't be deleted"), 400
+    db.session.delete(lang)
+    db.session.commit()
+    broadcast_event("language_changed", {"code": code, "action": "deleted"})
+    return jsonify(deleted=True)
+
+
 @app.get("/api/admin/stats")
 @jwt_required()
 def admin_stats():
@@ -1783,6 +2920,15 @@ def _validate_challenge_payload(data, partial=False):
             if not isinstance(parsed, dict):
                 return None, "terminal_fs must be a JSON object"
             fields["terminal_fs"] = json.dumps(parsed)
+        if "terminal_disabled_commands" in data:
+            raw = data["terminal_disabled_commands"]
+            if raw in (None, "", []):
+                fields["terminal_disabled_commands"] = None
+            else:
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+                if not isinstance(parsed, list) or not all(isinstance(x, str) for x in parsed):
+                    return None, "terminal_disabled_commands must be a JSON array of command names"
+                fields["terminal_disabled_commands"] = json.dumps(parsed)
         if "web_config" in data and data["web_config"]:
             parsed = json.loads(data["web_config"]) if isinstance(data["web_config"], str) else data["web_config"]
             if not isinstance(parsed, dict):
@@ -1853,6 +2999,7 @@ def create_challenge():
         file_url=fields.get("file_url"),
         type=challenge_type,
         terminal_fs=fields.get("terminal_fs"),
+        terminal_disabled_commands=fields.get("terminal_disabled_commands"),
         web_config=fields.get("web_config"),
         ai_config=fields.get("ai_config"),
         quiz_config=fields.get("quiz_config"),
@@ -2263,7 +3410,10 @@ def bootstrap_database():
                 connection.execute(db.text("ALTER TABLE challenge ADD COLUMN ai_config TEXT"))
             if "quiz_config" not in existing_columns:
                 connection.execute(db.text("ALTER TABLE challenge ADD COLUMN quiz_config TEXT"))
+            if "terminal_disabled_commands" not in existing_columns:
+                connection.execute(db.text("ALTER TABLE challenge ADD COLUMN terminal_disabled_commands TEXT"))
         db.create_all()
+        seed_default_languages()
         # create a default admin if none exists (lab convenience only!)
         if not User.query.filter_by(is_admin=True).first():
             try:

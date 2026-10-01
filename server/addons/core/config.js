@@ -1,8 +1,13 @@
 // core addon config GUI - see motd-banner/config.js for a more heavily
 // commented example of the window.OpenCTFAdmin contract this relies on.
+// Labels use window.OpenCTF.t() so the config screen matches whatever
+// language is currently active, plus a matching data-i18n attribute so
+// it keeps up live if the admin switches language while this modal is
+// still open (see docs/LOCALIZATION.md).
 (function () {
+  const t = window.OpenCTF.t;
   window.OpenCTFAdmin.mount(async (container) => {
-    container.innerHTML = '<p class="field-note">Loading current config...</p>';
+    container.innerHTML = `<p class="field-note" data-i18n="common.loading_config">${t("common.loading_config", "Loading current config...")}</p>`;
     let config;
     try {
       config = await window.OpenCTFAdmin.get();
@@ -17,17 +22,17 @@
           <input type="checkbox" id="core-cfg-toasts" />
           <span class="toggle-track"></span>
         </span>
-        Toast notification on solve
+        <span data-i18n="addon.core.config.toasts_label">${t("addon.core.config.toasts_label", "Toast notification on solve")}</span>
       </label>
       <label class="toggle-row">
         <span class="toggle-switch">
           <input type="checkbox" id="core-cfg-dot" />
           <span class="toggle-track"></span>
         </span>
-        Live-updates connection dot
+        <span data-i18n="addon.core.config.dot_label">${t("addon.core.config.dot_label", "Live-updates connection dot")}</span>
       </label>
       <div class="form-actions">
-        <button type="button" class="btn-primary small" id="core-cfg-save">Save</button>
+        <button type="button" class="btn-primary small" id="core-cfg-save" data-i18n="common.save">${t("common.save", "Save")}</button>
         <span class="form-result" id="core-cfg-result"></span>
       </div>
     `;
@@ -44,7 +49,7 @@
           solve_toasts: container.querySelector("#core-cfg-toasts").checked,
           connection_indicator: container.querySelector("#core-cfg-dot").checked,
         });
-        result.textContent = "Saved - live on every open client.";
+        result.textContent = t("common.saved_live", "Saved - live on every open client.");
         result.className = "form-result ok";
       } catch (err) {
         result.textContent = err.message;

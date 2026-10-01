@@ -95,6 +95,8 @@ input[type="url"],
 input[type="tel"],
 input[type="number"],
 input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
 textarea,
 select {
   appearance: none;
@@ -114,6 +116,83 @@ input[type="number"] { font-family: "IBM Plex Mono", monospace; }
 textarea { resize: vertical; }
 textarea.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
 
+/* date/time/datetime-local: `appearance: none` above already strips the
+   OS-native field chrome (the box itself matches every other input now),
+   but the little calendar/clock icon and the popup picker it opens are
+   still rendered by Chromium itself, not by this stylesheet - there's no
+   standard way to hand-paint either one the way the checkbox/radio above
+   are. `color-scheme: dark` gets both of them to render in dark mode
+   instead of defaulting to a light-on-light icon and a jarring white
+   popup against this page's dark background; the icon itself is then
+   restyled below so it's actually visible and matches the rest of the
+   input rather than looking like an unstyled leftover.
+   Note this assumes a dark theme is active, same as the rest of this
+   base stylesheet - a light theme (e.g. forest-dawn) overrides plenty of
+   these variables already but doesn't currently touch color-scheme, so
+   under a light theme the popup stays dark-styled rather than following
+   the page. Fine for now since only two of the five shipped themes are
+   light, but a theme wanting a matching light popup can add its own
+   `input[type="date"], input[type="time"], input[type="datetime-local"]
+   { color-scheme: light; }` override in its own theme.css. */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  color-scheme: dark;
+  min-height: 36px;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  opacity: 0.75;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+/* Chromium also renders the individual day/month/year (or hour/minute/
+   second) segments and the "clear" (x) button as separate sub-controls;
+   these keep them from clipping against the field's own rounded
+   corners/border. */
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit {
+  padding: 0;
+}
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-year-field,
+input[type="time"]::-webkit-datetime-edit-hour-field,
+input[type="time"]::-webkit-datetime-edit-minute-field,
+input[type="time"]::-webkit-datetime-edit-second-field,
+input[type="time"]::-webkit-datetime-edit-ampm-field,
+input[type="datetime-local"]::-webkit-datetime-edit-day-field,
+input[type="datetime-local"]::-webkit-datetime-edit-month-field,
+input[type="datetime-local"]::-webkit-datetime-edit-year-field,
+input[type="datetime-local"]::-webkit-datetime-edit-hour-field,
+input[type="datetime-local"]::-webkit-datetime-edit-minute-field,
+input[type="datetime-local"]::-webkit-datetime-edit-second-field,
+input[type="datetime-local"]::-webkit-datetime-edit-ampm-field {
+  border-radius: 3px;
+}
+input[type="date"]::-webkit-clear-button,
+input[type="time"]::-webkit-clear-button,
+input[type="datetime-local"]::-webkit-clear-button {
+  filter: invert(0.6);
+  opacity: 0.6;
+}
+
 input[type="text"]:focus-visible,
 input[type="password"]:focus-visible,
 input[type="search"]:focus-visible,
@@ -122,6 +201,8 @@ input[type="url"]:focus-visible,
 input[type="tel"]:focus-visible,
 input[type="number"]:focus-visible,
 input[type="date"]:focus-visible,
+input[type="time"]:focus-visible,
+input[type="datetime-local"]:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline: 1px solid var(--accent);
@@ -267,11 +348,22 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent-dim)
   background: none;
   border: none;
   color: var(--text-dim);
-  font-size: 14px;
-  line-height: 1;
   cursor: pointer;
-  padding: 6px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border-radius: var(--radius);
+}
+.password-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .password-toggle:hover { color: var(--text); }
 .password-toggle:focus-visible { outline: 1px solid var(--accent); }
@@ -310,6 +402,35 @@ input[type="file"]::file-selector-button:hover { border-color: var(--accent-dim)
   margin-top: 14px;
 }
 .link-btn.small { margin: 4px 16px; text-align: left; }
+
+.lang-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.lang-picker-label { font-size: 11px; color: var(--text-dim); }
+.lang-select {
+  background: var(--bg-soft, #1a1a1a);
+  color: var(--text);
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.lang-select.small { padding: 4px 6px; font-size: 11px; margin: 4px 16px; width: calc(100% - 32px); }
+.lang-picker-row-sidebar { justify-content: flex-start; margin: 4px 0; }
+.language-upload-form { display: flex; flex-direction: column; gap: 8px; max-width: 420px; margin-top: 16px; }
+.language-upload-form input[type="text"] {
+  background: var(--bg-soft, #1a1a1a);
+  color: var(--text);
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  font-size: 13px;
+}
 
 .form-error { color: var(--err); font-size: 12px; min-height: 16px; margin: 0; }
 
@@ -596,6 +717,7 @@ textarea.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
 
 /* ---- Toggle switch (used in place of bare checkboxes in the admin forms) ---- */
 .toggle-row {
+  display: flex;
   flex-direction: row !important;
   align-items: center;
   justify-content: flex-start;
@@ -833,6 +955,7 @@ textarea.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
   background: #070a0d;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  border-bottom: 0;
   padding: 12px;
   height: 240px;
   overflow-y: auto;
@@ -875,7 +998,7 @@ textarea.mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
   min-width: 0;
   background: none;
   border: none;
-  color: var(--text);
+  color: var(--accent);
   font-family: "IBM Plex Mono", monospace;
   font-size: 12px;
   padding: 2px 0;
