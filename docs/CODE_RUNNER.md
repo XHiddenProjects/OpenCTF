@@ -1,7 +1,7 @@
 # Running player code (Code Challenge Editor)
 
 When a player presses **Run** in a coding challenge, the server executes their
-code against the challenge's tests. As of v1.3.0 this happens **on your own
+code against the challenge's tests. As of v1.3.1 this happens **on your own
 machine, offline** by default. No internet connection and no Judge0 are needed.
 
 ```text

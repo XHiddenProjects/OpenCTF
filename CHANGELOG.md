@@ -3,6 +3,21 @@
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 Versions apply to the platform as a whole (client + server move together).
 
+## 1.3.1
+
+### Added
+- Traces addon: Admin's can lock/unlock challenges so its class pace.
+- ctf-toolkit: Capture-the-flag toolkit
+  
+### Fixed
+- Updated vulnerabilities
+- Make judge0 run local
+- Made all the connection under `client/src/main.js`
+```js
+DEFAULT_CONFIG.serverURL // Change the value to proper server IP
+```
+- Updated **stats** where it has hover tooltips
+
 ## 1.3.0
 
 ### Added

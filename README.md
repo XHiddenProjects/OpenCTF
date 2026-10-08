@@ -198,7 +198,7 @@ Copy `server/.env.example` to `server/.env` and configure these variables:
 | `TARGET_SERVER_URL` | Public URL of the isolated target service, normally `http://localhost:5001` |
 | `TARGET_ACCESS_SECRET` | Signs target-service access parameters |
 | `TARGET_PORT` | Port used by `target_app.py`, default `5001` |
-| `OLLAMA_URL` | Ollama API URL, default `http://127.0.0.1:11434` |
+| `OLLAMA_URL` | Ollama API URL, default `http://127.0.0.1:11434` outside Docker Compose |
 | `OLLAMA_MODEL` | Ollama model name, default `llama3.2` |
 | `CODE_RUNNER` | `local` (default, runs offline on this machine) or `judge0`; see [docs/CODE_RUNNER.md](docs/CODE_RUNNER.md) |
 | `CODE_RUNNER_SANDBOX` | `auto` (default), `bwrap`, `netns` or `none` isolation for player code |

@@ -11,7 +11,16 @@ const DEFAULT_CONFIG = {
 
 function readConfig() {
   try {
-    return { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) };
+    const config = { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) };
+    let hostname = "";
+    try {
+      hostname = new URL(config.serverUrl).hostname.toLowerCase();
+    } catch {}
+    if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "[::1]") {
+      config.serverUrl = DEFAULT_CONFIG.serverUrl;
+      writeConfig(config);
+    }
+    return config;
   } catch {
     return { ...DEFAULT_CONFIG };
   }

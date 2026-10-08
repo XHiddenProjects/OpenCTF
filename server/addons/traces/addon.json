@@ -1,0 +1,9 @@
+{
+  "id": "traces",
+  "name": "Traces",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "Manage challenge access independently, grouped by category.",
+  "entry": "addon.js",
+  "core": ">=1.0.0"
+}

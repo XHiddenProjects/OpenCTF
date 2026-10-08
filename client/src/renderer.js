@@ -1445,7 +1445,13 @@ async function openWebChallenge(c) {
   hintWrap.classList.toggle("hidden", !c.hint);
   if (c.hint) $("#modal-hint").textContent = c.hint;
   $("#modal-challenge").classList.remove("hidden");
-  const targetUrl = c.target_url || `${SERVER_URL.replace(/:\d+$/, ":5001")}/target/${c.id}/`;
+  const targetUrl = new URL(c.target_url || `/target/${c.id}/`, SERVER_URL);
+  if (!c.target_url || ["localhost", "127.0.0.1", "[::1]"].includes(targetUrl.hostname.toLowerCase())) {
+    const serverUrl = new URL(SERVER_URL);
+    targetUrl.protocol = serverUrl.protocol;
+    targetUrl.hostname = serverUrl.hostname;
+    targetUrl.port = "5001";
+  }
   const freshTargetUrl = new URL(targetUrl);
   freshTargetUrl.searchParams.set("_ctf_refresh", Date.now().toString());
   TARGET_HISTORY = [new URL(targetUrl).pathname];
