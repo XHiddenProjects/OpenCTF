@@ -2,6 +2,9 @@
    app's own CSS custom properties (client/src/styles.css) so it matches
    whichever theme is active instead of hardcoding colors.
 
+   Line/area charts plot score over time (one colored step line per team),
+   all charts have hover tooltips - see addon.js.
+
    Responsiveness has two layers:
    1. The <svg> itself is always fluid (viewBox + width: 100%), so it
       scales continuously with its container - no breakpoints needed for
@@ -23,6 +26,7 @@
 }
 
 .stats-metric-toggle,
+.stats-range-toggle,
 .stats-chart-type-toggle {
   display: inline-flex;
   border: 1px solid var(--border);
@@ -30,7 +34,10 @@
   overflow: hidden;
 }
 
+.stats-range-toggle[hidden] { display: none; }
+
 .stats-metric-btn,
+.stats-range-btn,
 .stats-chart-type-btn {
   padding: 6px 14px;
   font-size: 13px;
@@ -42,11 +49,13 @@
 }
 
 .stats-metric-btn + .stats-metric-btn,
+.stats-range-btn + .stats-range-btn,
 .stats-chart-type-btn + .stats-chart-type-btn {
   border-left: 1px solid var(--border);
 }
 
 .stats-metric-btn.active,
+.stats-range-btn.active,
 .stats-chart-type-btn.active {
   background: var(--accent);
   color: #1a1305;
@@ -124,7 +133,7 @@
   font-size: 11px;
 }
 
-/* Line / area chart elements (bar chart reuses the styles above) */
+/* Axes, gridlines and series (time charts) */
 
 .stats-chart-axis,
 .stats-chart-tick {
@@ -132,37 +141,159 @@
   stroke-width: 1;
 }
 
+.stats-chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.55;
+}
+
+.stats-axis-label {
+  font-size: 11px;
+}
+
+/* Ten distinguishable series colors; override --stats-c1..10 in a theme to
+   restyle. Both color schemes of the bundled themes read fine with these. */
+.stats-chart-wrap,
+.stats-legend {
+  --stats-c0: var(--accent, #e8a23a);
+  --stats-c1: #4aa8d8;
+  --stats-c2: var(--ok, #4caf7d);
+  --stats-c3: #c77dd8;
+  --stats-c4: #e0675f;
+  --stats-c5: #d8c24a;
+  --stats-c6: #4ad8c0;
+  --stats-c7: #8a8fe8;
+  --stats-c8: #e08fb0;
+  --stats-c9: #9aa5b1;
+}
+.stats-s0 { --c: var(--stats-c0); }
+.stats-s1 { --c: var(--stats-c1); }
+.stats-s2 { --c: var(--stats-c2); }
+.stats-s3 { --c: var(--stats-c3); }
+.stats-s4 { --c: var(--stats-c4); }
+.stats-s5 { --c: var(--stats-c5); }
+.stats-s6 { --c: var(--stats-c6); }
+.stats-s7 { --c: var(--stats-c7); }
+.stats-s8 { --c: var(--stats-c8); }
+.stats-s9 { --c: var(--stats-c9); }
+
 .stats-chart-line {
   fill: none;
-  stroke: var(--accent);
+  stroke: var(--c, var(--accent));
   stroke-width: 2.5;
   stroke-linejoin: round;
   stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
 }
 
 .stats-chart-area {
-  fill: var(--accent);
-  opacity: 0.18;
+  fill: var(--c, var(--accent));
+  opacity: 0.14;
   stroke: none;
 }
 
 .stats-chart-dot {
-  fill: var(--accent);
+  fill: var(--c, var(--accent));
+  stroke: var(--bg-card);
+  stroke-width: 1.5;
+}
+
+.stats-marker {
+  fill: var(--c, var(--accent));
   stroke: var(--bg-card);
   stroke-width: 2;
+  pointer-events: none;
 }
 
-.stats-chart-dot.stats-bar-1 {
-  fill: var(--ok);
+.stats-guide {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
 }
 
-.stats-chart-dot.stats-bar-2 {
-  fill: var(--accent);
+.stats-time-chart {
+  touch-action: pan-y;
+  cursor: crosshair;
+  outline: none;
+}
+.stats-time-chart:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
-.stats-chart-dot.stats-bar-3 {
-  fill: var(--accent-dim);
+/* Legend hover / focus spotlights one team */
+.stats-dim .stats-series { opacity: 0.18; }
+.stats-dim .stats-series.stats-spot { opacity: 1; }
+.stats-dim .stats-chart-area.stats-spot { opacity: 0.3; }
+
+/* Bar chart hover */
+.stats-hit { fill: transparent; }
+.stats-hover { cursor: default; outline: none; }
+.stats-hover:hover .stats-chart-track,
+.stats-hover:focus .stats-chart-track { fill: var(--border); }
+.stats-hover:hover .stats-chart-bar,
+.stats-hover:focus .stats-chart-bar { filter: brightness(1.15); }
+.stats-hover:focus-visible .stats-hit { stroke: var(--accent); stroke-width: 1.5; rx: 4; }
+
+/* Legend */
+.stats-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
 }
+.stats-legend[hidden] { display: none; }
+.stats-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.stats-legend-item:hover { border-color: var(--text-dim); }
+.stats-legend-item.off { opacity: 0.45; text-decoration: line-through; }
+.stats-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--c, var(--accent));
+  flex: none;
+}
+.stats-legend-item .stats-swatch { margin-right: 0; }
+
+/* Tooltip */
+.stats-chart-wrap { position: relative; }
+.stats-tooltip {
+  position: absolute;
+  z-index: 5;
+  min-width: 150px;
+  max-width: 280px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.stats-tooltip[hidden] { display: none; }
+.stats-tip-title { font-weight: 700; margin-bottom: 4px; }
+.stats-tip-title small { font-weight: 400; color: var(--text-dim); }
+.stats-tip-row { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.stats-tip-row b { font-variant-numeric: tabular-nums; }
+.stats-tip-note { color: var(--text-dim); font-size: 11px; margin: 1px 0 3px; }
 
 .stats-empty {
   color: var(--text-dim);

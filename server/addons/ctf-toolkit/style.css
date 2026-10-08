@@ -1,0 +1,53 @@
+/* CTF Toolkit addon - uses the host app's CSS variables so every theme works. */
+.tk-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); margin: 14px 0 16px; }
+.tk-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-dim); padding: 8px 14px; font-size: 13px; cursor: pointer; }
+.tk-tab:hover { color: var(--text); }
+.tk-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tk-panel[hidden], .tk-tool [hidden] { display: none !important; }
+.tk-tool { display: flex; flex-direction: column; gap: 12px; max-width: 860px; }
+.tk-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-dim); }
+.tk-area, .tk-text, .tk-select, .tk-number {
+  width: 100%; box-sizing: border-box; background: var(--bg-raised, var(--bg)); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; font-size: 13px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+}
+.tk-area { resize: vertical; min-height: 70px; }
+.tk-area:focus, .tk-text:focus, .tk-select:focus, .tk-number:focus { outline: none; border-color: var(--accent); }
+.tk-select { width: auto; min-width: 150px; }
+.tk-number { width: 90px; }
+.tk-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.tk-row .tk-field { min-width: 0; }
+.tk-magic-btn { margin-left: auto; }
+.tk-error { color: var(--err); font-size: 13px; border: 1px solid var(--err); border-radius: var(--radius); padding: 8px 12px; }
+.tk-note { color: var(--text-dim); font-size: 12px; margin: 0; }
+.tk-warn { color: var(--accent); }
+.tk-h { margin: 8px 0 0; font-size: 13px; }
+.tk-pre { margin: 0; padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; color: var(--text); }
+.tk-hex { white-space: pre; word-break: normal; }
+.tk-magic-list { display: flex; flex-direction: column; gap: 10px; }
+.tk-magic-item { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-raised, transparent); }
+.tk-magic-item.tk-best { border-color: var(--accent); }
+.tk-magic-path { font-size: 12px; color: var(--accent); font-weight: 600; }
+.tk-hash-table { display: flex; flex-direction: column; gap: 6px; }
+.tk-hash-row { display: grid; grid-template-columns: 80px 1fr auto; gap: 10px; align-items: center; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); }
+.tk-hash-row code { font-size: 12px; word-break: break-all; }
+.tk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tk-chip { padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; }
+.tk-chip-ok { border-color: var(--ok); color: var(--ok); }
+.tk-list { margin: 0; padding-left: 18px; font-size: 13px; }
+.tk-break { word-break: break-all; font-size: 12px; }
+.tk-kv { border-collapse: collapse; font-size: 13px; }
+.tk-kv th { text-align: left; color: var(--text-dim); font-weight: 400; padding: 3px 18px 3px 0; }
+.tk-file { display: none; }
+.tk-drop { display: flex; flex-direction: column; gap: 4px; align-items: center; padding: 26px; border: 2px dashed var(--border); border-radius: var(--radius); cursor: pointer; color: var(--text-dim); text-align: center; }
+.tk-drop strong { color: var(--text); }
+.tk-drop:hover, .tk-drop.over, .tk-drop:focus-visible { border-color: var(--accent); outline: none; }
+.tk-tool > .tk-field > input[type="file"] { display: block; font-size: 12px; }
+.tk-freq { display: grid; grid-template-columns: repeat(26, minmax(0, 1fr)); gap: 4px; align-items: end; height: 190px; }
+.tk-bar { display: flex; flex-direction: column; align-items: center; height: 100%; gap: 4px; font-size: 11px; color: var(--text-dim); outline: none; }
+.tk-bar-track { position: relative; flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
+.tk-bar-fill { width: 70%; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 1px; }
+.tk-bar-english { position: absolute; bottom: 0; left: 15%; width: 70%; border-top: 2px solid var(--text-dim); opacity: 0.7; pointer-events: none; }
+.tk-bar:hover .tk-bar-fill, .tk-bar:focus .tk-bar-fill { filter: brightness(1.2); }
+@media (max-width: 640px) { .tk-hash-row { grid-template-columns: 1fr; } .tk-magic-btn { margin-left: 0; } }

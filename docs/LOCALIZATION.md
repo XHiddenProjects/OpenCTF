@@ -15,7 +15,7 @@ remove language packs from **Admin -> Languages**.
   nothing silently falling back to English out of the box.
 - Language packs live in the database (table `language`), not on disk, so
   they survive container rebuilds and sync across every gunicorn worker.
-- Two example packs (Spanish `es`, French `fr`) install automatically on
+- Three example packs (Spanish `es`, French `fr`, German `de`) install automatically on
   first boot, the same convenience as the example addon/theme.
 
 ## Adding or updating a language (as an admin)
@@ -24,12 +24,19 @@ remove language packs from **Admin -> Languages**.
 2. Click **Download English template** to get a starting `.json` file with
    every known key and its English text.
 3. Translate the values (not the keys) into the target language.
-4. Fill in the **code** (e.g. `de`, `pt-br`, `zh-cn` - two letters, optionally
-   with a region suffix), the **English name** (e.g. "German"), and the
-   **native name** (e.g. "Deutsch").
-5. Upload the `.json` file. Re-uploading the same code later updates that
-   language in place - handy for fixing a typo or adding newly-translated
-   keys without starting over.
+4. Fill in the **code** (e.g. `de`, `pt-br`, `zh-cn`, `fil` - two or three
+   letters, optionally with a region suffix; `pt_BR` is normalized to
+   `pt-br`), the **English name** (e.g. "German"), and the **native name**
+   (e.g. "Deutsch"). Typing a common code (or naming the file `pt-br.json`)
+   fills in the names for you.
+5. Choose the `.json` file. It is checked in the browser first and you get a
+   summary - how many strings it contains, how many are still untranslated
+   (they'll show in English) and how many keys aren't in the English template -
+   before anything is sent. Then press **Upload** (or Enter).
+   Re-uploading the same code later updates that language in place - handy for
+   fixing a typo or adding newly-translated keys. The **Replace** button on a
+   row pre-fills the form for you, **Download** saves a pack as JSON, and a
+   chip beside each language shows how many strings it still leaves untranslated.
 
 Every connected browser picks up a newly-added or newly-updated language
 immediately (no refresh needed), the same live-update mechanism used for
@@ -47,8 +54,9 @@ themes and addons.
 
 - Keys are dotted strings grouped by area (`nav.*`, `auth.*`, `challenge.*`,
   `admin.*`, `common.*`, `scoreboard.*`, `profile.*`, `settings.*`).
-- Values must be plain strings - no nesting, no HTML.
-- A file over 2MB or containing non-string values is rejected.
+- Values must be plain strings - no nesting, no HTML. Values containing HTML tags (e.g. `<b>`) are rejected, because some interface text is inserted as HTML.
+- Files saved with a UTF-8 byte order mark (Windows Notepad does this) are fine.
+- A file over 2MB, an empty file, or one containing non-string values is rejected.
 - The built-in `en` pack can't be deleted or overwritten (it's the
   fallback everything else depends on), but a fresh upload of any other
   code either creates a new pack or updates an existing one.

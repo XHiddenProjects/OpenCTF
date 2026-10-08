@@ -27,6 +27,11 @@ except ImportError:
     # Running directly from a cloned copy of the repo (`python seed_challenges.py`).
     from app import app, db, Challenge, flag_from_answer
 
+try:
+    from openctf_server.seed_challenges_extra import EXTRA_CHALLENGES, finalize_extra
+except ImportError:
+    from seed_challenges_extra import EXTRA_CHALLENGES, finalize_extra
+
 CHALLENGES = [
     # ---------------------------------------------------------------- WEB
     {
@@ -1018,6 +1023,11 @@ CHALLENGES = [
 ]
 
 
+# v1.3.0 additions (coding, crypto, terminal and quiz challenges).
+CHALLENGES.extend(EXTRA_CHALLENGES)
+_EXTRA_TITLES = {c["title"] for c in EXTRA_CHALLENGES}
+
+
 def _finalize_challenges():
     """Turn each "answer" into the real OCTF{<md5>} flag, and fill in the
     pieces of content (ciphertext, dropped files) that have to embed that
@@ -1911,6 +1921,8 @@ def _finalize_challenges():
         },
     )
 
+    finalize_extra(by_title)
+
     for c in CHALLENGES:
         if "web_config" in c:
             c["web_config"]["secret"] = c["flag"]
@@ -1932,6 +1944,9 @@ def seed():
         if "terminal_disabled_commands" not in columns:
             with db.engine.begin() as connection:
                 connection.execute(db.text("ALTER TABLE challenge ADD COLUMN terminal_disabled_commands TEXT"))
+        if "code_config" not in columns:
+            with db.engine.begin() as connection:
+                connection.execute(db.text("ALTER TABLE challenge ADD COLUMN code_config TEXT"))
 
         _finalize_challenges()
 
@@ -1969,6 +1984,13 @@ def seed():
                     )
                     existing.description = c.get("description", existing.description)
                     print(f"refreshed terminal content: {c['title']}")
+                elif c.get("type") == "code":
+                    existing.type = "code"
+                    existing.description = c.get("description", existing.description)
+                    existing.hint = c.get("hint", existing.hint)
+                    existing.rules = c.get("rules", existing.rules)
+                    existing.code_config = json.dumps(c["code_config"])
+                    print(f"refreshed code challenge: {c['title']}")
                 elif c["title"] in ("Caesar's Problem", "Double Wrapped"):
                     existing.description = c["description"]
                     existing.hint = c.get("hint", existing.hint)
@@ -1998,6 +2020,10 @@ def seed():
                 web_config=json.dumps(c["web_config"]) if c.get("web_config") else None,
                 ai_config=json.dumps(c["ai_config"]) if c.get("ai_config") else None,
                 quiz_config=json.dumps(c["quiz_config"]) if c.get("quiz_config") else None,
+                code_config=json.dumps(c["code_config"]) if c.get("code_config") else None,
+                # Only the v1.3.0 additions define player-facing rules text on creation
+                # (older seeds never stored it; their text predates server-side runs).
+                rules=(c.get("rules") or None) if c["title"] in _EXTRA_TITLES else None,
             )
             db.session.add(challenge)
             created += 1

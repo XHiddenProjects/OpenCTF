@@ -1,6 +1,6 @@
 {
   "name": "openctf-server",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "OpenCTF lab CTF platform server (Flask API + sandboxed target-website service), bundled as Python source with a Node launcher. Requires Python 3.10+ already installed - npm cannot install a Python runtime for you.",
   "bin": {
     "openctf-server": "bin/openctf-server.js"
@@ -9,9 +9,15 @@
     "app.py",
     "target_app.py",
     "seed_challenges.py",
+    "seed_challenges_extra.py",
     "cli.py",
+    "code_runner.py",
+    "code_harness.py",
+    "local_runner.py",
+    "judge0_runner.py",
     "__init__.py",
     "requirements.txt",
+    "requirements-judge0.txt",
     "PACKAGE_README.md",
     "bin/",
     "addons/",

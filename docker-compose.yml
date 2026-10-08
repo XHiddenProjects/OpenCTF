@@ -17,7 +17,11 @@
 
 services:
   api:
-    build: ./server
+    build:
+      context: ./server
+      args:
+        # Extra language runtimes for the Code Challenge Editor (default: Python only).
+        CODE_RUNTIMES: ${CODE_RUNTIMES:-}
     ports:
       - "5000:5000"
     environment:
@@ -40,7 +44,9 @@ services:
       # docs/ADDON_DEVELOPMENT.md.
       - ./server/addons:/app/addons
       - ./server/themes:/app/themes
-    command: ["gunicorn", "-w", "1", "-b", "0.0.0.0:5000", "app:app"]
+    # One process (the code-run rate limiter and live-update stream live in
+    # memory) but several threads, so a slow code run doesn't block everyone.
+    command: ["gunicorn", "-w", "1", "--threads", "8", "--timeout", "120", "-b", "0.0.0.0:5000", "app:app"]
     restart: unless-stopped
 
   target:

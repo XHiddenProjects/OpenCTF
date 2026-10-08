@@ -1,0 +1,2 @@
+# Only needed when CODE_RUNNER=judge0 (the default offline runner doesn't use it).
+judge0>=0.0.8,<0.1.0

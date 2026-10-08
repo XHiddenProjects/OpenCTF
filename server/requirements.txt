@@ -5,4 +5,3 @@ Flask-JWT-Extended>=4.7.4
 python-dotenv>=1.0.0
 Werkzeug>=3.1.8
 gunicorn>=26.2.0
-judge0>=0.0.8,<0.1.0

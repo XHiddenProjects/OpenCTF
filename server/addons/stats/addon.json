@@ -1,9 +1,9 @@
 {
   "id": "stats",
   "name": "Stats",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "OpenCTF",
-  "description": "Adds a Stats tab that shows the leaderboard as a live chart - bar, line, or area - switchable between score and solve count, instead of a plain table.",
+  "description": "Adds a Stats tab: a leaderboard bar chart, plus line and area charts of every team's progress over time - all with hover tooltips, switchable between score and solve count.",
   "entry": "addon.js",
   "core": ">=1.0.0",
   "configurable": true,

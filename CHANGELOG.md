@@ -3,6 +3,88 @@
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 Versions apply to the platform as a whole (client + server move together).
 
+## 1.3.0
+
+### Added
+
+- **Offline code execution.** The Code Challenge Editor now runs player code on
+  the platform's own machine by default - no internet, no Judge0 required
+  (`CODE_RUNNER=local`). It uses the interpreters/compilers installed on the
+  server for JavaScript, Python, PHP, Ruby, C, C++ and Java, with CPU, wall-time,
+  memory and output limits, a scrubbed environment (server secrets are never
+  passed to player code) and, on Linux with bubblewrap installed, a real sandbox
+  with no network and no access to the server's files. C, C++ and Java compile
+  once per run instead of once per test. The editor only offers languages the
+  server can run, and the admin config screen shows the runner's status. Judge0
+  remains available with `CODE_RUNNER=judge0` (the `judge0` package is now
+  optional: `requirements-judge0.txt`). **Upgrade note:** set
+  `CODE_RUNNER=judge0` if you were using a Judge0 server; a lone
+  `JUDGE0_CE_ENDPOINT` is now ignored so code can't be sent off-machine by
+  accident. **Read `docs/CODE_RUNNER.md` before a competition** - without
+  bubblewrap, player code can read files the server can read.
+- **Code challenge type in the challenge builder.** New challenge -> Type ->
+  *Code challenge* replaces hand-writing a `[[coding-task]]` block: set the
+  function signature, languages, instructions and tests in a form, mark tests
+  as **hidden** (players see only pass/fail, which defeats hard-coded answers),
+  and **check the tests against a reference solution** before publishing. Stored
+  in a new `challenge.code_config` column (added automatically). The flag players
+  receive is the challenge's own flag. Existing `[[coding-task]]` challenges keep
+  working and open in the builder.
+- **Player console output.** `print` / `console.log` / `echo` / `printf` output now
+  appears in the editor's Console panel and no longer breaks the result.
+- **CTF Toolkit addon** (new tab): a converter with automatic multi-layer "magic"
+  decoding (Base64/32, hex, binary, decimal, URL, ROT13, HTML entities, Morse),
+  Caesar brute force, Atbash, Vigenère, XOR (including single-byte brute force),
+  rail fence, MD5/SHA hashing and hash identification, a JWT decoder, a file
+  inspector (file type, data hidden after PNG/JPEG, embedded file signatures,
+  hex dump, strings) and letter-frequency analysis. Everything runs locally in
+  the client. Enable it under Admin -> Addons & Themes.
+- **23 new challenges**: 12 coding (FizzBuzz Value, Reverse Words, Second Largest,
+  Count Set Bits, Run-Length Encode, Prime Counter, Roman Numerals, Shift Decode,
+  Diagonal Sum, Two Sum Indices, Word Counter, Flatten It), 4 encoding/cipher
+  puzzles (Atbash Whisper, Binary Beacon, Morse Dispatch, Rail Fence Rails),
+  3 terminal challenges (Cron Trail, Config Hunt, Shell History) and 4 quizzes.
+  Run `openctf-server-seed` (or `python seed_challenges.py`) to add them to an
+  existing database; nothing existing is changed. Every coding challenge is
+  verified by the test suite against reference solutions.
+- **Stats addon:** line and area charts now plot every team's **score over time**
+  (new `GET /api/scoreboard/timeline`) with a legend you can use to show or hide
+  teams and a time-range selector (all / 24 h / 6 h / 1 h). All charts have a
+  proper value axis with gridlines and **hover, keyboard-focus and touch
+  tooltips** (rank, score, solves, which challenge was solved and when).
+- Language admin: coverage chips showing untranslated strings per language, a
+  per-language **Download** and **Replace**, an upload preview checked in the
+  browser, name auto-fill for common codes, and three-letter codes (e.g. `fil`).
+- Test suites under `server/tests/` (offline runner and isolation, bundled
+  challenges, Judge0 backend with a stub, toolkit logic).
+
+### Fixed
+
+- **Code editor could not be clicked after scrolling.** Two nested scroll
+  containers and a grid track that couldn't grow past the container left the
+  textarea covering only the first screenful, so once the editor was scrolled
+  (vertically or horizontally) clicks landed on empty space. The editor is now a
+  single scroller with a sticky line-number gutter.
+- **Language upload.** Files saved with a UTF-8 byte order mark (Windows Notepad)
+  were rejected as "not valid JSON"; they are now accepted, and real JSON errors
+  say where. The Languages form layout was broken (centered, mismatched input
+  widths, misplaced template link). Enter now submits, language names are
+  escaped, and uploaded text containing HTML tags is rejected. Coverage counts
+  agree between the table, the upload preview and the server.
+- Stats chart: with a single team the line chart was one dot clamped to the top
+  edge with no scale. Percent-of-leader no longer rounds 99.5% up to 100%.
+- The Docker image and npm package did not include `judge0_runner.py`, so the
+  server could not start from them; all runner modules are now packaged. The
+  PyPI package's internal imports are fixed too.
+- The container now runs gunicorn with threads and a 120 s timeout so a slow
+  compile no longer stalls every other request.
+
+### Changed
+
+- Seed rules for the new coding challenges describe server-side execution.
+- Default `JUDGE0_CE_ENDPOINT` removed from the bundled `.env.example` (the
+  default runner is local and offline).
+
 ## 1.2.1
 
 ### Fixed

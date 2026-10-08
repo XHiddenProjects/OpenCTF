@@ -1,0 +1,9 @@
+{
+  "id": "ctf-toolkit",
+  "name": "CTF Toolkit",
+  "version": "1.0.0",
+  "author": "OpenCTF",
+  "description": "Adds a Toolkit tab with local tools for CTF players: a converter with automatic multi-layer decoding, classical ciphers (Caesar, Vigenère, XOR, rail fence), hashing and hash identification, a JWT decoder, a file inspector and frequency analysis. Nothing leaves the browser.",
+  "entry": "addon.js",
+  "core": ">=1.0.0"
+}

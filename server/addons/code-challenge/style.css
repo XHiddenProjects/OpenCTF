@@ -71,35 +71,40 @@
 }
 
 .cc-editor {
-  display: flex;
+  /* ONE scroll container, both axes. Everything inside (sticky gutter,
+     highlight layer, textarea) is laid out at its full content size and
+     simply scrolls with it, so there is no second scroller whose position
+     can disagree with this one.
+
+     History of the "can't click at the end of the editor once it has
+     scrolled" bug, so it isn't reintroduced: this used to be a flex row
+     with max-height. A single-line flex container clamps its line to
+     max-height, so .cc-code-wrap was stretched to only 420px tall while its
+     content was far taller. Because .cc-code-wrap also had overflow-x:auto
+     (which forces overflow-y:auto), it became a *second* vertical scroller:
+     scroll this editor down and the wrap - the only thing containing the
+     textarea - scrolled out of view, leaving empty background that no click
+     could reach. A grid row is sized by its content instead of being
+     clamped, so the wrap/textarea always span the full scrollable area. */
+  display: grid;
+  grid-template-columns: auto minmax(max-content, 1fr);
   border: 1px solid var(--cc-editor-border, var(--border));
   border-radius: var(--radius);
   background: var(--cc-editor-bg, var(--bg-raised));
-  /* The editor grows with its content (no internal scrolling, no manual
-     resize handle - see .cc-textarea below) up to this cap, past which
-     the *whole* editor (gutter and code together, as one flex row) is
-     what scrolls - overflow-y here, not on the gutter or the textarea
-     individually. That's deliberate: this used to be two things with
-     their own independent scroll position (the textarea's internal
-     scroll vs. an outer clipping box) that had to be kept in sync by
-     hand and could drift apart - the cursor would be in the right place
-     in the textarea while the highlighted text behind it was scrolled
-     to a different position. With only one scrollable element, there's
-     nothing left to fall out of sync. */
   max-height: 420px;
   min-height: 160px;
-  overflow-y: auto;
-  /* Horizontal scrolling belongs to .cc-code-wrap only (the gutter
-     shouldn't scroll sideways) - explicit here because overflow-y: auto
-     alone would otherwise force overflow-x to auto too per the CSS
-     Overflow spec, giving this row its own competing horizontal
-     scrollbar in addition to .cc-code-wrap's. */
-  overflow-x: hidden;
+  overflow: auto;
+  /* Keep the caret out from under the sticky gutter when the browser
+     scrolls it into view. */
+  scroll-padding: 12px 56px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cc-editor-border, var(--border)) transparent;
 }
 
 .cc-gutter {
-  flex: 0 0 auto;
-  align-self: stretch;
+  position: sticky;
+  left: 0;
+  z-index: 2;
   padding: 8px 8px 8px 10px;
   color: var(--cc-gutter-color, var(--text-dim));
   font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
@@ -112,27 +117,16 @@
 }
 
 .cc-code-wrap {
-  flex: 1 1 auto;
   min-width: 0;
-  /* Grid, not the highlight layer being position:absolute over a
-     position:relative wrapper (which is what this used to be): a grid
-     cell auto-sizes to its tallest/widest child and *both* children
-     stretch to fill it, in both dimensions, as a normal part of layout
-     - not something scrollTop/scrollLeft has to be copied onto by hand
-     on every input/scroll event. Horizontal scrolling for a long line
-     is local to this element only (the gutter shouldn't scroll
-     sideways); vertical scrolling is the outer .cc-editor's job (see
-     above), so this only ever needs an x-scrollbar. */
+  /* Grid: the highlight <pre> and the textarea share one cell, which
+     auto-sizes to the widest/tallest of them; both stretch to fill it.
+     minmax(max-content, 1fr) = at least as wide as the longest line (so the
+     textarea covers the whole scrollable width, scrolled or not), and fills
+     the box when the code is short. (Not minmax(100%, max-content): with a
+     definite container width that track can't grow past 100%, the text
+     overflowed its box, and the textarea only covered the first screenful.) */
   display: grid;
-  overflow-x: auto;
-}
-
-/* minmax(100%, max-content): never narrower than the visible column
-   (so short code still fills it), but grows to fit a long line instead
-   of wrapping or clipping it - the standard sizing for this "overlay a
-   real textarea on a highlighted <pre>" pattern. */
-.cc-code-wrap {
-  grid-template-columns: minmax(100%, max-content);
+  grid-template-columns: minmax(max-content, 1fr);
 }
 
 /* The highlighted <pre> and the real <textarea> are stacked in the same
@@ -233,10 +227,6 @@
 
 /* Themed scrollbar for .cc-editor, the one element that actually
    scrolls now (see its comment above). */
-.cc-editor {
-  scrollbar-width: thin;
-  scrollbar-color: var(--cc-editor-border, var(--border)) transparent;
-}
 
 .cc-editor::-webkit-scrollbar,
 .cc-code-wrap::-webkit-scrollbar {
@@ -439,3 +429,13 @@
     max-height: 280px;
   }
 }
+
+.cc-test-hidden { font-style: italic; opacity: 0.7; }
+.cc-no-runtime { margin: 6px 0 0; }
+
+/* Admin config: code runner status */
+.cc-runner-status { margin: 14px 0; }
+.cc-runner-status h4 { margin: 0 0 6px; }
+.cc-runner-langs { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 0; padding: 0; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.cc-runner-langs .ok { color: var(--success, #4caf7d); }
+.cc-runner-langs .off { color: var(--text-dim); }

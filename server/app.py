@@ -51,7 +51,10 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=False)
 
-import judge0_runner
+try:
+    import code_runner
+except ImportError:  # installed as the `openctf-server` package
+    from openctf_server import code_runner
 
 # ---------------------------------------------------------------------------
 # App / config
@@ -87,7 +90,7 @@ FLAG_PREFIX = "OCTF"
 TARGET_ACCESS_SECRET = os.environ.get("TARGET_ACCESS_SECRET", "change-me-target-access-secret")
 TARGET_PROCESS = None
 
-CHALLENGE_TYPES = ("standard", "terminal", "web", "ai", "quiz")
+CHALLENGE_TYPES = ("standard", "terminal", "web", "ai", "quiz", "code")
 CHALLENGE_DIFFICULTIES = ("easy", "medium", "hard", "expert")
 
 # ---------------------------------------------------------------------------
@@ -323,6 +326,12 @@ class Challenge(db.Model):
     # JSON-encoded {"question": str, "options": [str, ...], "correct_index": int}
     # for quiz challenges. correct_index is never sent to the client.
     quiz_config = db.Column(db.Text, nullable=True)
+    # JSON-encoded coding task for type="code" challenges (function name,
+    # allowed languages, starter code, tests...). Same shape as the legacy
+    # [[coding-task]] block - see server/addons/code-challenge/AUTHORING.md.
+    # The tests' expected values are visible to players, except tests marked
+    # "hidden", which are stripped by /coding-task. The flag is never in here.
+    code_config = db.Column(db.Text, nullable=True)
 
     @staticmethod
     def hash_flag(raw_flag: str) -> str:
@@ -351,6 +360,7 @@ class Challenge(db.Model):
             "web_config": self.web_config,
             "ai_config": self.ai_config,
             "quiz_config": self.quiz_config,
+            "code_config": self.code_config,
             # The actual flag literal, e.g. "OCTF{3858f622...}". Only ever
             # sent on admin-only routes, so admins can see/copy the current
             # flag instead of it being write-only.
@@ -736,6 +746,65 @@ BASE_TRANSLATIONS = {
     "builder.flag_required": "Flag is required for a new challenge.",
     "builder.flag_saved_note": "Current flag: {flag} - copy this into the challenge content (description, terminal files, etc.) wherever players need to find it.",
     "builder.confirm_delete": "Delete this challenge? This also removes its submission history.",
+    "admin.actions": "Actions",
+    "admin.language_form_title": "Add or update a language",
+    "admin.language_form_title_update": "Update language: {name}",
+    "admin.language_code_label": "Code",
+    "admin.language_name_label": "English name",
+    "admin.language_native_name_label": "Native name",
+    "admin.language_code_invalid": "Enter a language code like \"es\", \"fil\" or \"pt-br\".",
+    "admin.language_name_required": "Enter the language's English name.",
+    "admin.lang_report_ok": "{count} strings · {missing} untranslated (these fall back to English) · {unknown} not in the English template",
+    "admin.lang_report_invalid_json": "Not valid JSON: {error}",
+    "admin.lang_report_not_flat": "The file must be a flat object of text values, like {\"key\": \"translated text\"}.",
+    "admin.lang_report_html": "Values can't contain HTML tags (check: {keys}).",
+    "admin.lang_report_empty": "The file has no translations in it.",
+    "admin.keys_missing": "{count} untranslated",
+    "admin.keys_missing_tooltip": "These strings aren't translated yet and show in English.",
+    "admin.download_language_tooltip": "Download {name} as JSON",
+    "admin.replace_language_tooltip": "Replace {name} with a new file",
+    "admin.language_saved_missing": "Saved \"{name}\": {count} strings, {missing} still fall back to English.",
+    "builder.type_code": "Code challenge",
+    "builder.template_code": "Code challenge (function + tests)",
+    "challenge.type_code": "code",
+    "builder.code_title": "Code challenge builder",
+    "builder.code_intro": "Players write a function in the editor; the server runs it against your tests. They receive the flag below once every test passes.",
+    "builder.code_function": "Function name",
+    "builder.code_default_language": "Default language",
+    "builder.code_signature": "Signature",
+    "builder.code_add_param": "+ Add parameter",
+    "builder.code_returns": "Returns",
+    "builder.code_param_name": "parameter name",
+    "builder.code_remove": "Remove",
+    "builder.code_type_any": "any (JS/Python/PHP/Ruby only)",
+    "builder.code_types_note": "Choose a type for every parameter and the return value to allow C, C++ and Java. Pick \"any\" if the function uses objects or mixed values - then only JavaScript, Python, PHP and Ruby are available.",
+    "builder.code_languages": "Languages players can use",
+    "builder.code_instructions": "Instructions (shown above the editor)",
+    "builder.code_starter": "Starter code for the default language (optional - generated from the signature if empty)",
+    "builder.code_tests": "Tests",
+    "builder.code_test_args": "Arguments (JSON values, comma-separated)",
+    "builder.code_test_expect": "Expected result (JSON)",
+    "builder.code_test_hidden": "Hidden",
+    "builder.code_test_hidden_tip": "Players see only pass/fail for this test",
+    "builder.code_add_test": "+ Add test",
+    "builder.code_tests_note": "Example for sumArray(nums): arguments [1, 2, 3], expected 6. Strings need quotes: \"racecar\". Hidden tests show players only pass or fail, which stops hard-coded answers.",
+    "builder.code_verify": "Check your tests with a reference solution",
+    "builder.code_verify_note": "Paste a working solution and run it against the tests above (nothing is saved). If a test fails, its expected value is probably wrong.",
+    "builder.code_verify_language": "Language",
+    "builder.code_verify_run": "Run check",
+    "builder.code_verify_empty": "Paste a reference solution first.",
+    "builder.code_verify_lang_off": "That language isn't ticked in \"Languages players can use\".",
+    "builder.code_verify_ok": "All {total} tests pass with this solution.",
+    "builder.code_verify_failed": "{failed} of {total} tests failed with this solution.",
+    "builder.code_err_function": "Function name must be a valid identifier (letters, digits, underscores; not starting with a digit).",
+    "builder.code_err_param": "Every parameter needs a valid name (letters, digits, underscores).",
+    "builder.code_err_param_dup": "Parameter names must be different from each other.",
+    "builder.code_err_languages": "Choose at least one language.",
+    "builder.code_err_typed": "C, C++ and Java need a type for every parameter and the return value.",
+    "builder.code_err_no_tests": "Add at least one test.",
+    "builder.code_err_args": "Test {n}: the arguments aren't valid JSON values (strings need double quotes).",
+    "builder.code_err_arg_count": "Test {n}: expected {expected} argument(s) but found {found}.",
+    "builder.code_err_expect": "Test {n}: the expected result isn't valid JSON.",
 }
 
 # Two ready-to-use example packs, installed automatically on first boot -
@@ -1081,6 +1150,65 @@ _EXAMPLE_UI_TRANSLATIONS = {
         "builder.flag_required": "Se requiere una bandera para un reto nuevo.",
         "builder.flag_saved_note": "Bandera actual: {flag}. Cópiala en el contenido del reto (descripción, archivos del terminal, etc.) donde los jugadores deban encontrarla.",
         "builder.confirm_delete": "¿Eliminar este reto? También se eliminará su historial de envíos.",
+    "admin.actions": "Acciones",
+    "admin.language_form_title": "Añadir o actualizar un idioma",
+    "admin.language_form_title_update": "Actualizar idioma: {name}",
+    "admin.language_code_label": "Código",
+    "admin.language_name_label": "Nombre en inglés",
+    "admin.language_native_name_label": "Nombre nativo",
+    "admin.language_code_invalid": "Introduce un código de idioma como \"es\", \"fil\" o \"pt-br\".",
+    "admin.language_name_required": "Introduce el nombre del idioma en inglés.",
+    "admin.lang_report_ok": "{count} cadenas · {missing} sin traducir (se muestran en inglés) · {unknown} que no están en la plantilla en inglés",
+    "admin.lang_report_invalid_json": "JSON no válido: {error}",
+    "admin.lang_report_not_flat": "El archivo debe ser un objeto plano de textos, como {\"clave\": \"texto traducido\"}.",
+    "admin.lang_report_html": "Los valores no pueden contener etiquetas HTML (revisa: {keys}).",
+    "admin.lang_report_empty": "El archivo no contiene traducciones.",
+    "admin.keys_missing": "{count} sin traducir",
+    "admin.keys_missing_tooltip": "Estas cadenas aún no están traducidas y se muestran en inglés.",
+    "admin.download_language_tooltip": "Descargar {name} como JSON",
+    "admin.replace_language_tooltip": "Reemplazar {name} con un archivo nuevo",
+    "admin.language_saved_missing": "\"{name}\" guardado: {count} cadenas, {missing} siguen mostrándose en inglés.",
+    "builder.type_code": "Reto de código",
+    "builder.template_code": "Reto de código (función + pruebas)",
+    "challenge.type_code": "código",
+    "builder.code_title": "Constructor de retos de código",
+    "builder.code_intro": "Los jugadores escriben una función en el editor; el servidor la ejecuta con tus pruebas. Reciben el flag de abajo cuando todas las pruebas pasan.",
+    "builder.code_function": "Nombre de la función",
+    "builder.code_default_language": "Lenguaje predeterminado",
+    "builder.code_signature": "Firma",
+    "builder.code_add_param": "+ Añadir parámetro",
+    "builder.code_returns": "Devuelve",
+    "builder.code_param_name": "nombre del parámetro",
+    "builder.code_remove": "Quitar",
+    "builder.code_type_any": "cualquiera (solo JS/Python/PHP/Ruby)",
+    "builder.code_types_note": "Elige un tipo para cada parámetro y para el valor devuelto para permitir C, C++ y Java. Elige \"cualquiera\" si la función usa objetos o valores mixtos; entonces solo están disponibles JavaScript, Python, PHP y Ruby.",
+    "builder.code_languages": "Lenguajes que pueden usar los jugadores",
+    "builder.code_instructions": "Instrucciones (se muestran sobre el editor)",
+    "builder.code_starter": "Código inicial del lenguaje predeterminado (opcional; se genera a partir de la firma si está vacío)",
+    "builder.code_tests": "Pruebas",
+    "builder.code_test_args": "Argumentos (valores JSON separados por comas)",
+    "builder.code_test_expect": "Resultado esperado (JSON)",
+    "builder.code_test_hidden": "Oculta",
+    "builder.code_test_hidden_tip": "Los jugadores solo ven si esta prueba pasa o falla",
+    "builder.code_add_test": "+ Añadir prueba",
+    "builder.code_tests_note": "Ejemplo para sumArray(nums): argumentos [1, 2, 3], esperado 6. Las cadenas llevan comillas: \"racecar\". Las pruebas ocultas solo muestran si pasan o fallan, lo que evita respuestas escritas a mano.",
+    "builder.code_verify": "Comprobar las pruebas con una solución de referencia",
+    "builder.code_verify_note": "Pega una solución que funcione y ejecútala con las pruebas de arriba (no se guarda nada). Si una prueba falla, probablemente su valor esperado es incorrecto.",
+    "builder.code_verify_language": "Lenguaje",
+    "builder.code_verify_run": "Ejecutar comprobación",
+    "builder.code_verify_empty": "Pega primero una solución de referencia.",
+    "builder.code_verify_lang_off": "Ese lenguaje no está marcado en \"Lenguajes que pueden usar los jugadores\".",
+    "builder.code_verify_ok": "Las {total} pruebas pasan con esta solución.",
+    "builder.code_verify_failed": "{failed} de {total} pruebas fallaron con esta solución.",
+    "builder.code_err_function": "El nombre de la función debe ser un identificador válido (letras, dígitos y guiones bajos; sin empezar por un dígito).",
+    "builder.code_err_param": "Cada parámetro necesita un nombre válido (letras, dígitos y guiones bajos).",
+    "builder.code_err_param_dup": "Los nombres de los parámetros deben ser distintos.",
+    "builder.code_err_languages": "Elige al menos un lenguaje.",
+    "builder.code_err_typed": "C, C++ y Java necesitan un tipo para cada parámetro y para el valor devuelto.",
+    "builder.code_err_no_tests": "Añade al menos una prueba.",
+    "builder.code_err_args": "Prueba {n}: los argumentos no son valores JSON válidos (las cadenas llevan comillas dobles).",
+    "builder.code_err_arg_count": "Prueba {n}: se esperaban {expected} argumento(s) pero hay {found}.",
+    "builder.code_err_expect": "Prueba {n}: el resultado esperado no es JSON válido.",
     },
     "fr": {
         "common.refresh": "Actualiser", "common.active": "Actif", "common.hidden": "Masqué",
@@ -1166,6 +1294,65 @@ _EXAMPLE_UI_TRANSLATIONS = {
         "builder.flag_required": "Un drapeau est requis pour un nouveau défi.",
         "builder.flag_saved_note": "Drapeau actuel : {flag}. Copiez-le dans le contenu du défi (description, fichiers du terminal, etc.) à l'endroit où les joueurs doivent le trouver.",
         "builder.confirm_delete": "Supprimer ce défi ? L'historique de ses soumissions sera également supprimé.",
+    "admin.actions": "Actions",
+    "admin.language_form_title": "Ajouter ou mettre à jour une langue",
+    "admin.language_form_title_update": "Mettre à jour la langue : {name}",
+    "admin.language_code_label": "Code",
+    "admin.language_name_label": "Nom en anglais",
+    "admin.language_native_name_label": "Nom natif",
+    "admin.language_code_invalid": "Saisissez un code de langue comme « es », « fil » ou « pt-br ».",
+    "admin.language_name_required": "Saisissez le nom de la langue en anglais.",
+    "admin.lang_report_ok": "{count} chaînes · {missing} non traduites (affichées en anglais) · {unknown} absentes du modèle anglais",
+    "admin.lang_report_invalid_json": "JSON invalide : {error}",
+    "admin.lang_report_not_flat": "Le fichier doit être un objet plat de textes, comme {\"clé\": \"texte traduit\"}.",
+    "admin.lang_report_html": "Les valeurs ne peuvent pas contenir de balises HTML (vérifiez : {keys}).",
+    "admin.lang_report_empty": "Le fichier ne contient aucune traduction.",
+    "admin.keys_missing": "{count} non traduites",
+    "admin.keys_missing_tooltip": "Ces chaînes ne sont pas encore traduites et s'affichent en anglais.",
+    "admin.download_language_tooltip": "Télécharger {name} en JSON",
+    "admin.replace_language_tooltip": "Remplacer {name} par un nouveau fichier",
+    "admin.language_saved_missing": "« {name} » enregistré : {count} chaînes, {missing} restent en anglais.",
+    "builder.type_code": "Défi de code",
+    "builder.template_code": "Défi de code (fonction + tests)",
+    "challenge.type_code": "code",
+    "builder.code_title": "Créateur de défi de code",
+    "builder.code_intro": "Les joueurs écrivent une fonction dans l'éditeur ; le serveur l'exécute avec vos tests. Ils reçoivent le flag ci-dessous quand tous les tests réussissent.",
+    "builder.code_function": "Nom de la fonction",
+    "builder.code_default_language": "Langage par défaut",
+    "builder.code_signature": "Signature",
+    "builder.code_add_param": "+ Ajouter un paramètre",
+    "builder.code_returns": "Retourne",
+    "builder.code_param_name": "nom du paramètre",
+    "builder.code_remove": "Retirer",
+    "builder.code_type_any": "n'importe lequel (JS/Python/PHP/Ruby seulement)",
+    "builder.code_types_note": "Choisissez un type pour chaque paramètre et pour la valeur retournée afin d'autoriser C, C++ et Java. Choisissez « n'importe lequel » si la fonction utilise des objets ou des valeurs mixtes ; seuls JavaScript, Python, PHP et Ruby sont alors disponibles.",
+    "builder.code_languages": "Langages utilisables par les joueurs",
+    "builder.code_instructions": "Instructions (affichées au-dessus de l'éditeur)",
+    "builder.code_starter": "Code de départ du langage par défaut (facultatif ; généré d'après la signature si vide)",
+    "builder.code_tests": "Tests",
+    "builder.code_test_args": "Arguments (valeurs JSON séparées par des virgules)",
+    "builder.code_test_expect": "Résultat attendu (JSON)",
+    "builder.code_test_hidden": "Caché",
+    "builder.code_test_hidden_tip": "Les joueurs voient seulement réussite/échec pour ce test",
+    "builder.code_add_test": "+ Ajouter un test",
+    "builder.code_tests_note": "Exemple pour sumArray(nums) : arguments [1, 2, 3], attendu 6. Les chaînes prennent des guillemets : \"racecar\". Les tests cachés n'affichent que réussite ou échec, ce qui empêche les réponses codées en dur.",
+    "builder.code_verify": "Vérifier vos tests avec une solution de référence",
+    "builder.code_verify_note": "Collez une solution qui fonctionne et exécutez-la sur les tests ci-dessus (rien n'est enregistré). Si un test échoue, sa valeur attendue est probablement fausse.",
+    "builder.code_verify_language": "Langage",
+    "builder.code_verify_run": "Lancer la vérification",
+    "builder.code_verify_empty": "Collez d'abord une solution de référence.",
+    "builder.code_verify_lang_off": "Ce langage n'est pas coché dans « Langages utilisables par les joueurs ».",
+    "builder.code_verify_ok": "Les {total} tests réussissent avec cette solution.",
+    "builder.code_verify_failed": "{failed} test(s) sur {total} ont échoué avec cette solution.",
+    "builder.code_err_function": "Le nom de la fonction doit être un identifiant valide (lettres, chiffres, tirets bas ; sans commencer par un chiffre).",
+    "builder.code_err_param": "Chaque paramètre a besoin d'un nom valide (lettres, chiffres, tirets bas).",
+    "builder.code_err_param_dup": "Les noms des paramètres doivent être différents.",
+    "builder.code_err_languages": "Choisissez au moins un langage.",
+    "builder.code_err_typed": "C, C++ et Java exigent un type pour chaque paramètre et pour la valeur retournée.",
+    "builder.code_err_no_tests": "Ajoutez au moins un test.",
+    "builder.code_err_args": "Test {n} : les arguments ne sont pas des valeurs JSON valides (les chaînes prennent des guillemets doubles).",
+    "builder.code_err_arg_count": "Test {n} : {expected} argument(s) attendu(s) mais {found} trouvé(s).",
+    "builder.code_err_expect": "Test {n} : le résultat attendu n'est pas du JSON valide.",
     },
     "de": {
         "common.refresh": "Aktualisieren", "common.active": "Aktiv", "common.hidden": "Ausgeblendet", "common.edit": "Bearbeiten",
@@ -1245,6 +1432,65 @@ _EXAMPLE_UI_TRANSLATIONS = {
         "builder.flag_required": "Für eine neue Herausforderung ist ein Flag erforderlich.",
         "builder.flag_saved_note": "Aktuelles Flag: {flag}. Füge es in den Aufgabeninhalt (Beschreibung, Terminaldateien usw.) ein, wo Spieler es finden sollen.",
         "builder.confirm_delete": "Diese Herausforderung löschen? Dadurch wird auch ihr Einreichungsverlauf entfernt.",
+    "admin.actions": "Aktionen",
+    "admin.language_form_title": "Sprache hinzufügen oder aktualisieren",
+    "admin.language_form_title_update": "Sprache aktualisieren: {name}",
+    "admin.language_code_label": "Code",
+    "admin.language_name_label": "Englischer Name",
+    "admin.language_native_name_label": "Einheimischer Name",
+    "admin.language_code_invalid": "Gib einen Sprachcode wie \"es\", \"fil\" oder \"pt-br\" ein.",
+    "admin.language_name_required": "Gib den englischen Namen der Sprache ein.",
+    "admin.lang_report_ok": "{count} Texte · {missing} unübersetzt (werden auf Englisch angezeigt) · {unknown} nicht in der englischen Vorlage",
+    "admin.lang_report_invalid_json": "Ungültiges JSON: {error}",
+    "admin.lang_report_not_flat": "Die Datei muss ein flaches Objekt mit Textwerten sein, z. B. {\"schlüssel\": \"übersetzter Text\"}.",
+    "admin.lang_report_html": "Werte dürfen keine HTML-Tags enthalten (prüfe: {keys}).",
+    "admin.lang_report_empty": "Die Datei enthält keine Übersetzungen.",
+    "admin.keys_missing": "{count} unübersetzt",
+    "admin.keys_missing_tooltip": "Diese Texte sind noch nicht übersetzt und erscheinen auf Englisch.",
+    "admin.download_language_tooltip": "{name} als JSON herunterladen",
+    "admin.replace_language_tooltip": "{name} durch eine neue Datei ersetzen",
+    "admin.language_saved_missing": "\"{name}\" gespeichert: {count} Texte, {missing} erscheinen weiterhin auf Englisch.",
+    "builder.type_code": "Code-Aufgabe",
+    "builder.template_code": "Code-Aufgabe (Funktion + Tests)",
+    "challenge.type_code": "Code",
+    "builder.code_title": "Code-Aufgaben-Editor",
+    "builder.code_intro": "Spieler schreiben eine Funktion im Editor; der Server führt sie mit deinen Tests aus. Das Flag unten erhalten sie, sobald alle Tests bestehen.",
+    "builder.code_function": "Funktionsname",
+    "builder.code_default_language": "Standardsprache",
+    "builder.code_signature": "Signatur",
+    "builder.code_add_param": "+ Parameter hinzufügen",
+    "builder.code_returns": "Rückgabe",
+    "builder.code_param_name": "Parametername",
+    "builder.code_remove": "Entfernen",
+    "builder.code_type_any": "beliebig (nur JS/Python/PHP/Ruby)",
+    "builder.code_types_note": "Wähle für jeden Parameter und den Rückgabewert einen Typ, um C, C++ und Java zu erlauben. Wähle \"beliebig\", wenn die Funktion Objekte oder gemischte Werte nutzt - dann stehen nur JavaScript, Python, PHP und Ruby zur Verfügung.",
+    "builder.code_languages": "Sprachen für Spieler",
+    "builder.code_instructions": "Anweisungen (über dem Editor angezeigt)",
+    "builder.code_starter": "Startcode für die Standardsprache (optional - wird bei leerem Feld aus der Signatur erzeugt)",
+    "builder.code_tests": "Tests",
+    "builder.code_test_args": "Argumente (JSON-Werte, durch Kommas getrennt)",
+    "builder.code_test_expect": "Erwartetes Ergebnis (JSON)",
+    "builder.code_test_hidden": "Versteckt",
+    "builder.code_test_hidden_tip": "Spieler sehen bei diesem Test nur bestanden/nicht bestanden",
+    "builder.code_add_test": "+ Test hinzufügen",
+    "builder.code_tests_note": "Beispiel für sumArray(nums): Argumente [1, 2, 3], erwartet 6. Zeichenketten brauchen Anführungszeichen: \"racecar\". Versteckte Tests zeigen nur bestanden oder nicht bestanden und verhindern fest eincodierte Antworten.",
+    "builder.code_verify": "Tests mit einer Referenzlösung prüfen",
+    "builder.code_verify_note": "Füge eine funktionierende Lösung ein und führe sie gegen die Tests oben aus (es wird nichts gespeichert). Schlägt ein Test fehl, ist sein erwarteter Wert wahrscheinlich falsch.",
+    "builder.code_verify_language": "Sprache",
+    "builder.code_verify_run": "Prüfung starten",
+    "builder.code_verify_empty": "Füge zuerst eine Referenzlösung ein.",
+    "builder.code_verify_lang_off": "Diese Sprache ist unter \"Sprachen für Spieler\" nicht angehakt.",
+    "builder.code_verify_ok": "Alle {total} Tests bestehen mit dieser Lösung.",
+    "builder.code_verify_failed": "{failed} von {total} Tests sind mit dieser Lösung fehlgeschlagen.",
+    "builder.code_err_function": "Der Funktionsname muss ein gültiger Bezeichner sein (Buchstaben, Ziffern, Unterstriche; keine Ziffer am Anfang).",
+    "builder.code_err_param": "Jeder Parameter braucht einen gültigen Namen (Buchstaben, Ziffern, Unterstriche).",
+    "builder.code_err_param_dup": "Parameternamen müssen sich unterscheiden.",
+    "builder.code_err_languages": "Wähle mindestens eine Sprache.",
+    "builder.code_err_typed": "C, C++ und Java brauchen einen Typ für jeden Parameter und den Rückgabewert.",
+    "builder.code_err_no_tests": "Füge mindestens einen Test hinzu.",
+    "builder.code_err_args": "Test {n}: Die Argumente sind keine gültigen JSON-Werte (Zeichenketten brauchen doppelte Anführungszeichen).",
+    "builder.code_err_arg_count": "Test {n}: {expected} Argument(e) erwartet, aber {found} gefunden.",
+    "builder.code_err_expect": "Test {n}: Das erwartete Ergebnis ist kein gültiges JSON.",
     },
 }
 
@@ -2518,10 +2764,24 @@ def submit_flag():
 
 
 # Mirrors the [[coding-task]]...[[/coding-task]] block format the code-
-# challenge addon's client-side TASK_RE looks for (see that addon's
-# addon.js) - same regex, so a challenge author only has to think about
-# one block format; every language is executed server-side via Judge0.
+# challenge addon documents (see AUTHORING.md). Challenges created in the
+# admin builder (type "code") keep the same JSON in `Challenge.code_config`
+# instead; older challenges that embed the block in their description keep
+# working too. Either way the code is executed server-side by code_runner.
 _CODING_TASK_RE = re.compile(r"\[\[coding-task\]\]([\s\S]*?)\[\[/coding-task\]\]")
+
+_MAX_CODE_TESTS = 50
+_MAX_CODE_TEXT = 20_000
+_TASK_TEXT_KEYS = ("starter_code", "instructions")
+
+
+def _is_usable_task(task):
+    return (
+        isinstance(task, dict)
+        and isinstance(task.get("function_name"), str)
+        and isinstance(task.get("tests"), list)
+        and bool(task["tests"])
+    )
 
 
 def _extract_coding_task(description):
@@ -2532,13 +2792,128 @@ def _extract_coding_task(description):
         task = json.loads(match.group(1))
     except ValueError:
         return None
-    if not isinstance(task, dict):
-        return None
-    if not isinstance(task.get("function_name"), str) or not isinstance(
-        task.get("tests"), list
-    ) or not task["tests"]:
-        return None
-    return task
+    return task if _is_usable_task(task) else None
+
+
+def _coding_task_for(challenge):
+    """The coding task for a challenge: code_config first, legacy block second."""
+    if challenge.code_config:
+        try:
+            task = json.loads(challenge.code_config)
+        except ValueError:
+            task = None
+        if _is_usable_task(task):
+            return task
+    return _extract_coding_task(challenge.description)
+
+
+def _validate_code_task(raw):
+    """Validate/normalize a coding task from the admin builder.
+    Returns (clean_task, error_message_or_None)."""
+    if not isinstance(raw, dict):
+        return None, "code_config must be a JSON object"
+    function_name = raw.get("function_name")
+    try:
+        code_runner.harness.validate_function_name(function_name)
+    except ValueError:
+        return None, "function name must be a valid identifier (letters, digits, underscore)"
+
+    tests = raw.get("tests")
+    if not isinstance(tests, list) or not tests:
+        return None, "add at least one test"
+    if len(tests) > _MAX_CODE_TESTS:
+        return None, f"at most {_MAX_CODE_TESTS} tests are allowed"
+    clean_tests = []
+    for number, test in enumerate(tests, start=1):
+        if not isinstance(test, dict) or not isinstance(test.get("args"), list) or "expect" not in test:
+            return None, f"test {number} needs an arguments list and an expected value"
+        if clean_tests and len(test["args"]) != len(clean_tests[0]["args"]):
+            return None, f"test {number} has a different number of arguments than test 1"
+        item = {"args": test["args"], "expect": test["expect"]}
+        if test.get("hidden"):
+            item["hidden"] = True
+        clean_tests.append(item)
+
+    task = {"function_name": function_name, "tests": clean_tests}
+
+    parameter_types = raw.get("parameter_types")
+    return_type = raw.get("return_type")
+    typed = isinstance(parameter_types, list) and isinstance(return_type, str)
+    if typed:
+        task["parameter_types"] = parameter_types
+        task["return_type"] = return_type
+    names = raw.get("parameter_names")
+    if names is not None:
+        if (
+            not isinstance(names, list) or len(names) != len(clean_tests[0]["args"])
+            or not all(isinstance(n, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", n) for n in names)
+            or len(set(names)) != len(names)
+        ):
+            return None, "parameter names must be unique identifiers, one per argument"
+        task["parameter_names"] = names
+
+    languages = raw.get("languages")
+    if languages is not None:
+        if not isinstance(languages, list):
+            return None, "languages must be a list"
+        normalized = []
+        for item in languages:
+            language = code_runner.normalize_language(item)
+            if language not in code_runner.SUPPORTED_LANGUAGES:
+                return None, f"'{item}' isn't a runnable language"
+            if language not in normalized:
+                normalized.append(language)
+        if not normalized:
+            return None, "choose at least one language"
+        task["languages"] = normalized
+    else:
+        normalized = list(
+            code_runner.SUPPORTED_LANGUAGES if typed else code_runner.SUPPORTED_DYNAMIC_LANGUAGES
+        )
+
+    # Static languages need a valid typed signature that the tests actually fit.
+    for language in normalized:
+        if language in code_runner.harness.STATIC_LANGUAGES:
+            if not typed:
+                return None, f"{language} needs parameter types and a return type"
+            try:
+                code_runner.harness.static_source(
+                    language, "", function_name, clean_tests, parameter_types, return_type
+                )
+            except (ValueError, TypeError) as exc:
+                return None, (
+                    f"the tests don't fit the declared parameter/return types for {language} "
+                    f"(check each test's arguments): {exc}"
+                )
+
+    default_language = code_runner.normalize_language(raw.get("language") or normalized[0])
+    if default_language not in normalized:
+        default_language = normalized[0]
+    task["language"] = default_language
+
+    for key in _TASK_TEXT_KEYS:
+        value = raw.get(key)
+        if value is not None:
+            if not isinstance(value, str) or len(value) > _MAX_CODE_TEXT:
+                return None, f"{key} must be text under {_MAX_CODE_TEXT} characters"
+            if value.strip():
+                task[key] = value
+    by_language = raw.get("starter_code_by_language")
+    if by_language is not None:
+        if not isinstance(by_language, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) and len(v) <= _MAX_CODE_TEXT
+            for k, v in by_language.items()
+        ):
+            return None, "starter_code_by_language must map language names to text"
+        cleaned = {code_runner.normalize_language(k): v for k, v in by_language.items() if v.strip()}
+        if cleaned:
+            task["starter_code_by_language"] = cleaned
+    return task, None
+
+
+def _public_tests(tests):
+    """Tests as shown to players. Hidden tests reveal nothing but their existence."""
+    return [{"hidden": True} if test.get("hidden") else test for test in tests]
 
 
 @app.get("/api/challenges/<int:challenge_id>/coding-task")
@@ -2547,23 +2922,28 @@ def get_coding_task(challenge_id):
     challenge = Challenge.query.get(challenge_id)
     if not challenge or not challenge.is_active:
         return jsonify(error="challenge not found"), 404
-    task = _extract_coding_task(challenge.description)
+    task = _coding_task_for(challenge)
     if not task:
         return jsonify(error="this challenge has no coding-task"), 404
     public_fields = (
         "function_name", "language", "languages", "starter_code",
         "starter_code_by_language", "parameter_names", "parameter_types",
-        "return_type", "instructions", "tests",
+        "return_type", "instructions",
     )
-    return jsonify({key: task[key] for key in public_fields if key in task})
+    payload = {key: task[key] for key in public_fields if key in task}
+    payload["tests"] = _public_tests(task["tests"])
+    # What this server can actually run right now (the offline runner only
+    # offers the interpreters/compilers that are installed).
+    payload["available_languages"] = code_runner.available_languages()
+    return jsonify(payload)
 
 
-# In-memory sliding-window limiter for /code-run: each Judge0 call spins
-# up real sandboxed execution on a shared instance, so this is worth
-# throttling independently of the flag-submission rate limit above. Not
-# distributed-safe (per-process only) - fine for this app's normal single
-# -process deployment; move to a Submission-style DB table (like the flag
-# rate limit) first if you run this behind multiple workers.
+# In-memory sliding-window limiter for /code-run: each run spawns real
+# processes (or a Judge0 request), so this is worth throttling independently
+# of the flag-submission rate limit above. Not distributed-safe (per-process
+# only) - fine for this app's normal single-process deployment; move to a
+# Submission-style DB table (like the flag rate limit) first if you run this
+# behind multiple workers.
 _CODE_RUN_LIMIT = 15
 _CODE_RUN_WINDOW_S = 300
 _code_run_attempts = {}
@@ -2582,13 +2962,39 @@ def _code_run_rate_limited(user_id):
         return False
 
 
+def _enabled_task_languages(task):
+    """Languages a task allows (and the platform can run in principle)."""
+    has_typed_signature = isinstance(task.get("parameter_types"), list) and isinstance(task.get("return_type"), str)
+    supported = (
+        code_runner.SUPPORTED_LANGUAGES if has_typed_signature else code_runner.SUPPORTED_DYNAMIC_LANGUAGES
+    )
+    configured = task.get("languages")
+    if not isinstance(configured, list):
+        configured = supported
+    enabled = {code_runner.normalize_language(item) for item in configured if isinstance(item, str)}
+    enabled.intersection_update(supported)
+    if not enabled:
+        fallback = code_runner.normalize_language(task.get("language") or "javascript")
+        enabled.add(fallback if fallback in supported else "javascript")
+    return enabled
+
+
+def _redact_hidden(task_tests, results):
+    for test, result in zip(task_tests, results):
+        if test.get("hidden"):
+            result["expected"] = None
+            result["actual"] = None
+            result["stdout"] = None
+            result["stderr"] = None
+            result["hidden"] = True
+    return results
+
+
 @app.post("/api/challenges/<int:challenge_id>/code-run")
 @jwt_required()
 def code_challenge_run(challenge_id):
     """Server-side execution for the Code Challenge Editor addon's Run
-    button. Proxies all supported languages to Judge0 - see
-    judge0_runner.py for the supported harnesses and sandbox limits.
-    """
+    button. See code_runner.py for backends and limits."""
     user = current_user()
     if _code_run_rate_limited(user.id):
         return jsonify(error="too many runs, try again in a few minutes"), 429
@@ -2597,53 +3003,23 @@ def code_challenge_run(challenge_id):
     if not challenge or not challenge.is_active:
         return jsonify(error="challenge not found"), 404
 
-    task = _extract_coding_task(challenge.description)
+    task = _coding_task_for(challenge)
     if not task:
         return jsonify(error="this challenge has no coding-task"), 404
 
-    data = request.get_json(force=True) or {}
-    language = judge0_runner.normalize_language(data.get("language"))
+    data = request.get_json(force=True, silent=True) or {}
+    language = code_runner.normalize_language(data.get("language"))
     code = data.get("code") or ""
 
-    configured_languages = task.get("languages")
-    has_typed_signature = isinstance(task.get("parameter_types"), list) and isinstance(task.get("return_type"), str)
-    task_supported_languages = (
-        judge0_runner.SUPPORTED_LANGUAGES
-        if has_typed_signature
-        else judge0_runner.SUPPORTED_DYNAMIC_LANGUAGES
-    )
-    if not isinstance(configured_languages, list):
-        configured_languages = task_supported_languages
-    enabled_languages = {
-        judge0_runner.normalize_language(item)
-        for item in configured_languages
-        if isinstance(item, str)
-    }
-    enabled_languages.intersection_update(task_supported_languages)
-    if not enabled_languages:
-        fallback_language = judge0_runner.normalize_language(task.get("language") or "javascript")
-        enabled_languages.add(
-            fallback_language
-            if fallback_language in task_supported_languages
-            else "javascript"
-        )
-    if language not in enabled_languages:
+    if language not in _enabled_task_languages(task):
         return jsonify(error="that language is not enabled for this challenge"), 400
-
     if not isinstance(code, str) or not code.strip():
         return jsonify(error="code is required"), 400
     if len(code) > 20_000:
         return jsonify(error="code is too long"), 400
-    if language not in judge0_runner.SUPPORTED_LANGUAGES:
-        return jsonify(
-            error=(
-                f"'{language}' isn't supported here. Supported: "
-                f"{', '.join(judge0_runner.SUPPORTED_LANGUAGES)}."
-            )
-        ), 400
 
     try:
-        results = judge0_runner.run_coding_task(
+        results = code_runner.run_coding_task(
             language=language,
             player_code=code,
             function_name=task["function_name"],
@@ -2651,16 +3027,59 @@ def code_challenge_run(challenge_id):
             parameter_types=task.get("parameter_types"),
             return_type=task.get("return_type"),
         )
-    except judge0_runner.Judge0Unavailable as exc:
+    except code_runner.CodeRunnerUnavailable as exc:
         return jsonify(error=str(exc)), 503
-    except ValueError as exc:
+    except (code_runner.UnsupportedLanguage, ValueError) as exc:
         return jsonify(error=str(exc)), 400
 
+    _redact_hidden(task["tests"], results)
     all_passed = bool(results) and all(r["passed"] for r in results)
     response = {"results": results, "all_passed": all_passed}
     if all_passed:
-        response["flag"] = task["flag"]
+        # The challenge's own flag is the source of truth (it follows later
+        # edits to the Flag field); a legacy block's embedded flag is the fallback.
+        response["flag"] = challenge.flag_template or task.get("flag")
     return jsonify(response)
+
+
+@app.get("/api/admin/code-runner")
+@jwt_required()
+def admin_code_runner_status():
+    err = admin_required()
+    if err:
+        return err
+    return jsonify(code_runner.status())
+
+
+@app.post("/api/admin/code-challenge/verify")
+@jwt_required()
+def admin_verify_code_challenge():
+    """Builder helper: run a reference solution against a (possibly unsaved)
+    coding task so authors can catch wrong expected values before publishing."""
+    err = admin_required()
+    if err:
+        return err
+    data = request.get_json(force=True, silent=True) or {}
+    task, error = _validate_code_task(data.get("code_config"))
+    if error:
+        return jsonify(error=error), 400
+    language = code_runner.normalize_language(data.get("language"))
+    code = data.get("code")
+    if language not in _enabled_task_languages(task):
+        return jsonify(error="that language isn't enabled for this task"), 400
+    if not isinstance(code, str) or not code.strip() or len(code) > 20_000:
+        return jsonify(error="paste a reference solution (under 20,000 characters)"), 400
+    try:
+        results = code_runner.run_coding_task(
+            language=language, player_code=code, function_name=task["function_name"],
+            tests=task["tests"], parameter_types=task.get("parameter_types"),
+            return_type=task.get("return_type"),
+        )
+    except code_runner.CodeRunnerUnavailable as exc:
+        return jsonify(error=str(exc)), 503
+    except (code_runner.UnsupportedLanguage, ValueError) as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(results=results, all_passed=bool(results) and all(r["passed"] for r in results))
 
 
 @app.post("/api/challenges/<int:challenge_id>/terminal")
@@ -2886,6 +3305,65 @@ def scoreboard():
     # highest score first, tie-break by earliest last_solve (classic CTF ordering)
     board.sort(key=lambda t: (-t["score"], t["last_solve"] or ""))
     return jsonify(board)
+
+
+def _utc_iso(moment):
+    """Naive UTC datetime -> ISO-8601 with an explicit Z (the DB stores naive
+    UTC; without the suffix a browser would read it as local time)."""
+    return moment.replace(microsecond=0).isoformat() + "Z"
+
+
+@app.get("/api/scoreboard/timeline")
+@jwt_required()
+def scoreboard_timeline():
+    """Score-over-time data for the Stats addon's line/area charts.
+
+    One series per team (best first, same order and same scoring rules as
+    /api/scoreboard: each challenge counts once, at the team's first correct
+    submission). `events` are the solves in time order; the client turns them
+    into a running total. ?limit=N caps the number of teams (default 10).
+    """
+    try:
+        limit = max(1, min(25, int(request.args.get("limit", 10))))
+    except ValueError:
+        limit = 10
+
+    points_by_challenge = {c.id: (c.title, c.points) for c in Challenge.query.all()}
+    first_solves = {}  # (team_id, challenge_id) -> earliest correct submission time
+    for team_id, challenge_id, submitted_at in db.session.query(
+        Submission.team_id, Submission.challenge_id, Submission.submitted_at
+    ).filter(Submission.correct.is_(True)).all():
+        key = (team_id, challenge_id)
+        if key not in first_solves or submitted_at < first_solves[key]:
+            first_solves[key] = submitted_at
+
+    per_team = {}
+    for (team_id, challenge_id), moment in first_solves.items():
+        if challenge_id not in points_by_challenge:
+            continue
+        title, points = points_by_challenge[challenge_id]
+        per_team.setdefault(team_id, []).append(
+            {"moment": moment, "challenge": title, "points": points}
+        )
+
+    rows = []
+    for team in Team.query.all():
+        events = sorted(per_team.get(team.id, []), key=lambda e: e["moment"])
+        rows.append({
+            "team": team.name,
+            "score": sum(e["points"] for e in events),
+            "solves": len(events),
+            "last": events[-1]["moment"] if events else None,
+            "events": events,
+        })
+    rows.sort(key=lambda r: (-r["score"], r["last"] or datetime.max))
+
+    series = [{
+        "team": r["team"], "score": r["score"], "solves": r["solves"],
+        "events": [{"t": _utc_iso(e["moment"]), "challenge": e["challenge"], "points": e["points"]}
+                   for e in r["events"]],
+    } for r in rows[:limit]]
+    return jsonify(series=series, now=_utc_iso(datetime.utcnow()), team_count=len(rows))
 
 
 # ---------------------------------------------------------------------------
@@ -3244,6 +3722,21 @@ def admin_delete_theme(theme_id):
     return jsonify(deleted=True)
 
 
+def _english_key_set():
+    """Every string a complete translation needs: the core English pack plus
+    whatever enabled-or-not addons/themes ship in their own lang/en.json -
+    the same set the "Download English template" button hands out."""
+    english = Language.query.get("en")
+    own = json.loads(english.translations or "{}") if english else {}
+    return set(own) | set(extension_lang_overlay("en"))
+
+
+def _missing_translation_count(code, own_keys, english_keys):
+    """English strings a pack leaves untranslated, counting the translations
+    addons ship for that language themselves as covered."""
+    return len(english_keys - set(own_keys) - set(extension_lang_overlay(code)))
+
+
 @app.get("/api/admin/languages")
 @jwt_required()
 def admin_list_languages():
@@ -3251,7 +3744,18 @@ def admin_list_languages():
     if err:
         return err
     langs = Language.query.order_by(Language.is_builtin.desc(), Language.name).all()
-    return jsonify([lang.to_dict() for lang in langs])
+    english_keys = _english_key_set()
+    out = []
+    for lang in langs:
+        item = lang.to_dict()
+        own_keys = set(json.loads(lang.translations or "{}"))
+        # How many English strings this pack doesn't translate yet (they fall
+        # back to English) - so an admin can see at a glance what's incomplete.
+        item["missing_count"] = (
+            0 if lang.is_builtin else _missing_translation_count(lang.code, own_keys, english_keys)
+        )
+        out.append(item)
+    return jsonify(out)
 
 
 @app.post("/api/admin/languages/upload")
@@ -3266,12 +3770,14 @@ def admin_upload_language():
     if err:
         return err
 
-    code = (request.form.get("code") or "").strip().lower()
+    # Accept "pt_BR" / "PT-br" and normalize to "pt-br".
+    code = (request.form.get("code") or "").strip().lower().replace("_", "-")
     name = (request.form.get("name") or "").strip()
     native_name = (request.form.get("native_name") or "").strip() or name
 
-    if not re.fullmatch(r"[a-z]{2}(-[a-z0-9]{2,8})?", code):
-        return jsonify(error='language code must look like "es" or "pt-br"'), 400
+    # Two- or three-letter language (es, fil) with an optional region/script.
+    if not re.fullmatch(r"[a-z]{2,3}(-[a-z0-9]{2,8})?", code):
+        return jsonify(error='language code must look like "es", "fil" or "pt-br"'), 400
     if not name:
         return jsonify(error="a display name is required"), 400
     if code == "en" and Language.query.get("en") and Language.query.get("en").is_builtin:
@@ -3287,13 +3793,24 @@ def admin_upload_language():
     if len(raw) > 2 * 1024 * 1024:
         return jsonify(error="translation file is too large"), 400
     try:
-        parsed = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return jsonify(error="file is not valid JSON"), 400
+        # utf-8-sig: Windows Notepad (and some editors) save JSON with a byte
+        # order mark, which plain utf-8 + json.loads rejects as "not valid JSON".
+        parsed = json.loads(raw.decode("utf-8-sig"))
+    except UnicodeDecodeError:
+        return jsonify(error="file isn't UTF-8 text - re-save it as UTF-8"), 400
+    except json.JSONDecodeError as exc:
+        return jsonify(error=f"file is not valid JSON (line {exc.lineno}, column {exc.colno}: {exc.msg})"), 400
     if not isinstance(parsed, dict) or not all(isinstance(v, str) for v in parsed.values()):
         return jsonify(error="translation file must be a flat object of string values"), 400
     if not all(isinstance(k, str) for k in parsed.keys()):
         return jsonify(error="translation file must be a flat object of string values"), 400
+    if not parsed:
+        return jsonify(error="translation file is empty"), 400
+    # Some UI text is inserted as HTML, so a value may not contain markup.
+    html_keys = [k for k, v in parsed.items() if re.search(r"<\s*[A-Za-z/!?]", v)]
+    if html_keys:
+        shown = ", ".join(html_keys[:5]) + ("..." if len(html_keys) > 5 else "")
+        return jsonify(error=f"translations must be plain text without HTML tags (check: {shown})"), 400
 
     existing = Language.query.get(code)
     if existing:
@@ -3309,7 +3826,13 @@ def admin_upload_language():
         ))
     db.session.commit()
     broadcast_event("language_changed", {"code": code, "action": "updated" if existing else "added"})
-    return jsonify(code=code, name=name, native_name=native_name, key_count=len(parsed))
+    english_keys = _english_key_set()
+    unknown = sorted(set(parsed) - english_keys)
+    return jsonify(
+        code=code, name=name, native_name=native_name, key_count=len(parsed),
+        missing_count=_missing_translation_count(code, parsed, english_keys),
+        unknown_count=len(unknown), unknown_sample=unknown[:5],
+    )
 
 
 @app.delete("/api/admin/languages/<code>")
@@ -3433,6 +3956,12 @@ def _validate_challenge_payload(data, partial=False):
             if not str(parsed.get("question", "")).strip():
                 return None, "quiz_config needs a question"
             fields["quiz_config"] = json.dumps(parsed)
+        if "code_config" in data and data["code_config"]:
+            raw = json.loads(data["code_config"]) if isinstance(data["code_config"], str) else data["code_config"]
+            task, task_error = _validate_code_task(raw)
+            if task_error:
+                return None, f"code challenge: {task_error}"
+            fields["code_config"] = json.dumps(task)
     except ValueError as e:
         return None, str(e)
     except json.JSONDecodeError:
@@ -3463,6 +3992,8 @@ def create_challenge():
         return jsonify(error="ai_config is required for AI challenges"), 400
     if challenge_type == "quiz" and "quiz_config" not in fields:
         return jsonify(error="quiz_config is required for quiz challenges"), 400
+    if challenge_type == "code" and "code_config" not in fields:
+        return jsonify(error="code_config is required for code challenges"), 400
 
     challenge = Challenge(
         title=fields["title"],
@@ -3481,6 +4012,7 @@ def create_challenge():
         web_config=fields.get("web_config"),
         ai_config=fields.get("ai_config"),
         quiz_config=fields.get("quiz_config"),
+        code_config=fields.get("code_config"),
     )
     db.session.add(challenge)
     db.session.commit()
@@ -3502,6 +4034,11 @@ def update_challenge(challenge_id):
     fields, error = _validate_challenge_payload(data, partial=True)
     if error:
         return jsonify(error=error), 400
+
+    if fields.get("type") == "code" and not (
+        fields.get("code_config") or _coding_task_for(challenge)
+    ):
+        return jsonify(error="code_config is required for code challenges"), 400
 
     for key, value in fields.items():
         setattr(challenge, key, value)
@@ -3890,6 +4427,8 @@ def bootstrap_database():
                 connection.execute(db.text("ALTER TABLE challenge ADD COLUMN quiz_config TEXT"))
             if "terminal_disabled_commands" not in existing_columns:
                 connection.execute(db.text("ALTER TABLE challenge ADD COLUMN terminal_disabled_commands TEXT"))
+            if "code_config" not in existing_columns:
+                connection.execute(db.text("ALTER TABLE challenge ADD COLUMN code_config TEXT"))
         db.create_all()
         seed_default_languages()
         # create a default admin if none exists (lab convenience only!)
@@ -3914,6 +4453,25 @@ def bootstrap_database():
 
 
 bootstrap_database()
+
+
+def log_code_runner_status():
+    """One-line summary of how player code will be executed, so a misconfigured
+    (or unsandboxed) runner is noticed at startup, not mid-competition."""
+    try:
+        info = code_runner.status()
+    except Exception as exc:  # never let diagnostics stop the server
+        print(f"[code-runner] status unavailable: {exc}")
+        return
+    ready = sorted(lang for lang, d in info["languages"].items() if d["available"])
+    missing = sorted(lang for lang, d in info["languages"].items() if not d["available"])
+    print(f"[code-runner] backend={info['backend']} offline={info['offline']} sandbox={info['sandbox']} "
+          f"languages={','.join(ready) or 'none'}" + (f" (not installed: {','.join(missing)})" if missing else ""))
+    for warning in info["warnings"]:
+        print(f"[code-runner] WARNING: {warning}")
+
+
+log_code_runner_status()
 
 
 # ---------------------------------------------------------------------------

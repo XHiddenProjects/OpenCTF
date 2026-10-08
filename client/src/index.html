@@ -284,19 +284,37 @@
               to English.
             </p>
 
-            <table class="score-table">
+            <table class="score-table language-table">
               <thead>
-                <tr><th data-i18n="settings.language_label">Language</th><th data-i18n="admin.code">Code</th><th data-i18n="admin.keys">Keys</th><th></th></tr>
+                <tr>
+                  <th data-i18n="settings.language_label">Language</th>
+                  <th data-i18n="admin.code">Code</th>
+                  <th data-i18n="admin.keys">Keys</th>
+                  <th class="col-actions"><span class="sr-only" data-i18n="admin.actions">Actions</span></th>
+                </tr>
               </thead>
               <tbody id="admin-languages-body"></tbody>
             </table>
 
-            <form id="form-language-upload" class="inline-form language-upload-form">
-              <input type="text" id="lang-upload-code" placeholder="Code (e.g. es, fr, de, pt-br)" data-i18n-placeholder="admin.language_code_placeholder" required />
-              <input type="text" id="lang-upload-name" placeholder="English name (e.g. German)" data-i18n-placeholder="admin.language_name_placeholder" required />
-              <input type="text" id="lang-upload-native-name" placeholder="Native name (e.g. Deutsch)" data-i18n-placeholder="admin.language_native_name_placeholder" />
+            <form id="form-language-upload" class="language-form" novalidate>
+              <h4 id="language-form-title" data-i18n="admin.language_form_title">Add or update a language</h4>
+              <div class="language-form-grid">
+                <label class="field">
+                  <span data-i18n="admin.language_code_label">Code</span>
+                  <input type="text" id="lang-upload-code" list="lang-known-list" autocomplete="off" maxlength="20" spellcheck="false" placeholder="es, fr, de, pt-br" data-i18n-placeholder="admin.language_code_placeholder" />
+                </label>
+                <label class="field">
+                  <span data-i18n="admin.language_name_label">English name</span>
+                  <input type="text" id="lang-upload-name" autocomplete="off" placeholder="German" data-i18n-placeholder="admin.language_name_placeholder" />
+                </label>
+                <label class="field">
+                  <span data-i18n="admin.language_native_name_label">Native name</span>
+                  <input type="text" id="lang-upload-native-name" autocomplete="off" placeholder="Deutsch" data-i18n-placeholder="admin.language_native_name_placeholder" />
+                </label>
+              </div>
+              <datalist id="lang-known-list"></datalist>
               <div class="upload-dropzone" id="language-upload-zone">
-                <input type="file" id="language-upload-input" accept=".json" class="upload-dropzone-input" aria-label="Upload language JSON file" data-i18n-aria-label="admin.upload_language_aria" />
+                <input type="file" id="language-upload-input" accept=".json,application/json" class="upload-dropzone-input" aria-label="Upload language JSON file" data-i18n-aria-label="admin.upload_language_aria" />
                 <span class="upload-dropzone-icon">&#8679;</span>
                 <span class="upload-dropzone-text">
                   <strong data-i18n="admin.upload_language">Upload language file (.json)</strong>
@@ -304,8 +322,9 @@
                 </span>
                 <span class="upload-dropzone-file hidden" id="language-upload-filename"></span>
               </div>
+              <div class="language-report hidden" id="language-upload-report" role="status" aria-live="polite"></div>
               <div class="upload-actions">
-                <button type="button" class="btn-primary small" id="language-upload-btn" disabled data-i18n="common.upload">Upload</button>
+                <button type="submit" class="btn-primary small" id="language-upload-btn" disabled data-i18n="common.upload">Upload</button>
                 <a href="#" id="language-download-template" class="link-btn small" data-i18n="admin.download_english_template">Download English template</a>
                 <span class="form-result" id="language-upload-result"></span>
               </div>
@@ -444,13 +463,14 @@
                <option value="database" data-i18n="builder.template_database">Database attack</option>
                <option value="terminal" data-i18n="builder.template_terminal">Terminal exploration</option>
                <option value="quiz" data-i18n="builder.template_quiz">Quiz</option>
+               <option value="code" data-i18n="builder.template_code">Code challenge (function + tests)</option>
              </select>
            </label>
            <div class="form-grid">
              <label><span data-i18n="challenge.title">Title</span><input type="text" id="cf-title" required /></label>
              <label><span data-i18n="challenge.category">Category</span><input type="text" id="cf-category" placeholder="web, database, terminal..." data-i18n-placeholder="builder.category_placeholder" required /></label>
              <label><span data-i18n="challenge.type">Type</span>
-               <select id="cf-type"><option value="standard" data-i18n="builder.type_standard">Standard challenge</option><option value="web" data-i18n="builder.type_web">Sandboxed web lab</option><option value="terminal" data-i18n="builder.type_terminal">Interactive terminal</option><option value="ai" data-i18n="builder.type_ai">AI conversation</option><option value="quiz" data-i18n="builder.type_quiz">Quiz</option></select>
+               <select id="cf-type"><option value="standard" data-i18n="builder.type_standard">Standard challenge</option><option value="web" data-i18n="builder.type_web">Sandboxed web lab</option><option value="terminal" data-i18n="builder.type_terminal">Interactive terminal</option><option value="ai" data-i18n="builder.type_ai">AI conversation</option><option value="quiz" data-i18n="builder.type_quiz">Quiz</option><option value="code" data-i18n="builder.type_code">Code challenge</option></select>
              </label>
              <label><span data-i18n="challenge.difficulty">Difficulty</span>
                <select id="cf-difficulty"><option value="easy" data-i18n="builder.difficulty_easy">Easy · 100 pts</option><option value="medium" data-i18n="builder.difficulty_medium">Medium · 200 pts</option><option value="hard" data-i18n="builder.difficulty_hard">Hard · 300 pts</option><option value="expert" data-i18n="builder.difficulty_expert">Expert · 400 pts</option></select>
@@ -502,6 +522,44 @@
               <label><span data-i18n="builder.voice_speed">Voice speed</span><input type="number" id="cf-ai-voice-rate" min="0.5" max="2" step="0.1" value="1" /></label>
             </div>
             <label class="toggle-row"><span class="toggle-switch"><input type="checkbox" id="cf-ai-speak" checked /><span class="toggle-track"></span></span> <span data-i18n="builder.speak_replies">Speak replies aloud when supported</span></label>
+          </div>
+          <div id="cf-code-wrap" class="builder-panel hidden">
+            <h4 data-i18n="builder.code_title">Code challenge builder</h4>
+            <p data-i18n="builder.code_intro">Players write a function in the editor; the server runs it against your tests. They receive the flag below once every test passes.</p>
+            <div class="code-grid-2">
+              <label><span data-i18n="builder.code_function">Function name</span><input type="text" id="cf-code-fn" placeholder="sumArray" spellcheck="false" autocomplete="off" /></label>
+              <label><span data-i18n="builder.code_default_language">Default language</span><select id="cf-code-lang"></select></label>
+            </div>
+            <fieldset class="code-fieldset">
+              <legend data-i18n="builder.code_signature">Signature</legend>
+              <div id="cf-code-params"></div>
+              <div class="code-signature-foot">
+                <button type="button" class="btn-ghost small" id="cf-code-add-param" data-i18n="builder.code_add_param">+ Add parameter</button>
+                <label class="code-inline"><span data-i18n="builder.code_returns">Returns</span><select id="cf-code-return"></select></label>
+              </div>
+              <p class="field-note" data-i18n="builder.code_types_note">Choose a type for every parameter and the return value to allow C, C++ and Java. Pick "any" if the function uses objects or mixed values - then only JavaScript, Python, PHP and Ruby are available.</p>
+            </fieldset>
+            <fieldset class="code-fieldset">
+              <legend data-i18n="builder.code_languages">Languages players can use</legend>
+              <div id="cf-code-langs" class="code-lang-checks"></div>
+            </fieldset>
+            <label><span data-i18n="builder.code_instructions">Instructions (shown above the editor)</span><textarea id="cf-code-instructions" rows="2"></textarea></label>
+            <label><span data-i18n="builder.code_starter">Starter code for the default language (optional - generated from the signature if empty)</span><textarea id="cf-code-starter" rows="3" spellcheck="false" class="mono"></textarea></label>
+            <fieldset class="code-fieldset">
+              <legend data-i18n="builder.code_tests">Tests</legend>
+              <div class="code-test-head"><span data-i18n="builder.code_test_args">Arguments (JSON values, comma-separated)</span><span data-i18n="builder.code_test_expect">Expected result (JSON)</span><span data-i18n="builder.code_test_hidden">Hidden</span><span></span></div>
+              <div id="cf-code-tests"></div>
+              <button type="button" class="btn-ghost small" id="cf-code-add-test" data-i18n="builder.code_add_test">+ Add test</button>
+              <p class="field-note" data-i18n="builder.code_tests_note">Example for sumArray(nums): arguments [1, 2, 3], expected 6. Strings need quotes: "racecar". Hidden tests show players only pass or fail, which stops hard-coded answers.</p>
+            </fieldset>
+            <details class="code-verify" id="cf-code-verify">
+              <summary data-i18n="builder.code_verify">Check your tests with a reference solution</summary>
+              <p class="field-note" data-i18n="builder.code_verify_note">Paste a working solution and run it against the tests above (nothing is saved). If a test fails, its expected value is probably wrong.</p>
+              <label><span data-i18n="builder.code_verify_language">Language</span><select id="cf-code-verify-lang"></select></label>
+              <textarea id="cf-code-verify-code" rows="6" spellcheck="false" class="mono"></textarea>
+              <div class="code-verify-actions"><button type="button" class="btn-ghost small" id="cf-code-verify-btn" data-i18n="builder.code_verify_run">Run check</button></div>
+              <div id="cf-code-verify-result" class="code-verify-result" aria-live="polite"></div>
+            </details>
           </div>
           <div id="cf-quiz-wrap" class="builder-panel hidden">
             <h4 data-i18n="builder.quiz_title">Quiz builder</h4>

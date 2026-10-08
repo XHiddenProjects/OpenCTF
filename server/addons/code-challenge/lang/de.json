@@ -17,6 +17,15 @@
   "addon.code-challenge.language_label": "Sprache",
   "addon.code-challenge.console_server_run": "(serverseitige Ausführung - keine lokale Konsolenausgabe)",
   "addon.code-challenge.meta.name": "Code-Herausforderungs-Editor",
-  "addon.code-challenge.meta.description": "Fügt Coding-Herausforderungen einen Editor für JavaScript, Python, PHP, Ruby, C, C++ und Java hinzu. Judge0 prüft alle Tests; das Flag wird erst nach Bestehen aller Tests angezeigt.",
-  "addon.code-challenge.config.font_size_label": "Editor-Schriftgröße (px)"
+  "addon.code-challenge.meta.description": "Fügt einen Code-Editor für JavaScript-, Python-, PHP-, Ruby-, C-, C++- und Java-Aufgaben hinzu. Der Code wird auf dem Server gegen jeden Test geprüft (standardmäßig offline), und das Flag wird erst nach bestandenen Tests angezeigt.",
+  "addon.code-challenge.config.font_size_label": "Editor-Schriftgröße (px)",
+  "addon.code-challenge.no_runtime": "Keine der Sprachen dieser Aufgabe ist auf dem Server installiert, daher kann derzeit kein Code ausgeführt werden. Bitte einen Admin fragen.",
+  "addon.code-challenge.hidden_test": "Versteckter Test",
+  "addon.code-challenge.console_none": "(dein Code hat nichts ausgegeben)",
+  "addon.code-challenge.config.runner_title": "Code-Ausführung",
+  "addon.code-challenge.config.runner_backend": "Backend",
+  "addon.code-challenge.config.runner_sandbox": "Isolierung",
+  "addon.code-challenge.config.runner_languages": "Sprachen auf diesem Server",
+  "addon.code-challenge.config.runner_not_installed": "nicht installiert",
+  "addon.code-challenge.config.runner_unavailable": "Runner-Status konnte nicht gelesen werden: {error}"
 }

@@ -68,13 +68,9 @@ async function initI18n() {
   const savedIsInstalled = saved && AVAILABLE_LANGUAGES.some((l) => l.code === saved);
   await setLanguage(savedIsInstalled ? saved : "en", { persist: false });
 
+  await refreshLanguageDropdowns();
   [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => {
-    if (!sel) return;
-    sel.innerHTML = AVAILABLE_LANGUAGES
-      .map((l) => `<option value="${l.code}">${l.native_name}</option>`)
-      .join("");
-    sel.value = CURRENT_LANG_CODE;
-    sel.addEventListener("change", (e) => setLanguage(e.target.value));
+    if (sel) sel.addEventListener("change", (e) => setLanguage(e.target.value));
   });
 }
 
@@ -779,12 +775,7 @@ function handleLiveEvent(type, data) {
       // translations so an admin's edits show up without a refresh.
       (async () => {
         try {
-          AVAILABLE_LANGUAGES = await (await fetch(SERVER_URL + "/api/languages")).json();
-          [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => {
-            if (!sel) return;
-            sel.innerHTML = AVAILABLE_LANGUAGES.map((l) => `<option value="${l.code}">${l.native_name}</option>`).join("");
-            sel.value = CURRENT_LANG_CODE;
-          });
+          await refreshLanguageDropdowns();
           if (data.code === CURRENT_LANG_CODE && data.action !== "deleted") await setLanguage(CURRENT_LANG_CODE);
         } catch { /* best-effort live refresh */ }
       })();
@@ -919,20 +910,9 @@ function wireEvents() {
 
   // Admin: Languages
   wireLanguageUploadDropzone();
-  $("#language-download-template").addEventListener("click", async (e) => {
+  $("#language-download-template").addEventListener("click", (e) => {
     e.preventDefault();
-    try {
-      const en = await (await fetch(SERVER_URL + "/api/languages/en")).json();
-      const blob = new Blob([JSON.stringify(en.translations, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "octf-language-template.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      alert(err.message);
-    }
+    downloadLanguage("en", "octf-language-template.json");
   });
 
   // Admin: challenge form
@@ -943,6 +923,8 @@ function wireEvents() {
     $("#cf-web-wrap").classList.toggle("hidden", e.target.value !== "web");
     $("#cf-ai-wrap").classList.toggle("hidden", e.target.value !== "ai");
     $("#cf-quiz-wrap").classList.toggle("hidden", e.target.value !== "quiz");
+    $("#cf-code-wrap").classList.toggle("hidden", e.target.value !== "code");
+    if (e.target.value === "code" && !$("#cf-code-fn").value) setCodeBuilder(null);
   });
   $("#cf-preset").addEventListener("change", (e) => applyChallengePreset(e.target.value));
   $("#cf-difficulty").addEventListener("change", updatePointsForDifficulty);
@@ -1155,7 +1137,7 @@ function buildChallengeCard(c) {
   const card = document.createElement("div");
   card.className = "challenge-card" + (c.solved ? " solved" : "");
   card.innerHTML = `
-    <p class="card-category">${c.category}${c.type === "terminal" ? ` · &gt;_ ${t("challenge.type_interactive", "interactive")}` : c.type === "web" ? ` · &lt;/&gt; ${t("challenge.type_sandbox", "sandbox")}` : c.type === "ai" ? ` · \u{1F5E3}\uFE0F ${t("challenge.type_conversation", "conversation")}` : c.type === "quiz" ? ` · \u2753 ${t("challenge.type_quiz", "quiz")}` : ""}</p>
+    <p class="card-category">${c.category}${c.type === "terminal" ? ` · &gt;_ ${t("challenge.type_interactive", "interactive")}` : c.type === "web" ? ` · &lt;/&gt; ${t("challenge.type_sandbox", "sandbox")}` : c.type === "ai" ? ` · \u{1F5E3}\uFE0F ${t("challenge.type_conversation", "conversation")}` : c.type === "quiz" ? ` · \u2753 ${t("challenge.type_quiz", "quiz")}` : c.type === "code" ? ` · \u2328 ${t("challenge.type_code", "code")}` : ""}</p>
     <p class="card-title">${c.title}</p>
     <p class="card-points">${t("challenge.points_short", "{points} pts", { points: c.points })}</p>
     ${c.solved ? `<p class="card-solved-tag">✓ ${t("challenge.solved", "solved")}</p>` : ""}
@@ -2084,24 +2066,231 @@ async function loadAdminAddons() {
   }
 }
 
+// ---- Admin: Languages -------------------------------------------------------
+
+// Common languages: typing one of these codes pre-fills the two name fields
+// (and the code box offers them as suggestions), so adding a pack is mostly
+// "pick a code, choose the file". Anything not listed still works.
+const KNOWN_LANGUAGES = {
+  ar: ["Arabic", "العربية"], bg: ["Bulgarian", "Български"], bn: ["Bengali", "বাংলা"],
+  cs: ["Czech", "Čeština"], da: ["Danish", "Dansk"], de: ["German", "Deutsch"],
+  el: ["Greek", "Ελληνικά"], en: ["English", "English"], es: ["Spanish", "Español"],
+  fa: ["Persian", "فارسی"], fi: ["Finnish", "Suomi"], fil: ["Filipino", "Filipino"],
+  fr: ["French", "Français"], he: ["Hebrew", "עברית"], hi: ["Hindi", "हिन्दी"],
+  hr: ["Croatian", "Hrvatski"], hu: ["Hungarian", "Magyar"], id: ["Indonesian", "Bahasa Indonesia"],
+  it: ["Italian", "Italiano"], ja: ["Japanese", "日本語"], ko: ["Korean", "한국어"],
+  ms: ["Malay", "Bahasa Melayu"], nb: ["Norwegian", "Norsk"], nl: ["Dutch", "Nederlands"],
+  pl: ["Polish", "Polski"], pt: ["Portuguese", "Português"], "pt-br": ["Portuguese (Brazil)", "Português (Brasil)"],
+  ro: ["Romanian", "Română"], ru: ["Russian", "Русский"], sk: ["Slovak", "Slovenčina"],
+  sr: ["Serbian", "Српски"], sv: ["Swedish", "Svenska"], sw: ["Swahili", "Kiswahili"],
+  th: ["Thai", "ไทย"], tr: ["Turkish", "Türkçe"], uk: ["Ukrainian", "Українська"],
+  vi: ["Vietnamese", "Tiếng Việt"], zh: ["Chinese", "中文"], "zh-cn": ["Chinese (Simplified)", "简体中文"],
+  "zh-tw": ["Chinese (Traditional)", "繁體中文"],
+};
+const LANG_CODE_RE = /^[a-z]{2,3}(-[a-z0-9]{2,8})?$/;
+const svgIcon = (paths) => `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths}</svg>`;
+const ICON_DOWNLOAD = svgIcon('<path d="M12 4v11"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/>');
+const ICON_REPLACE = svgIcon('<path d="M12 20V9"/><path d="m7 13 5-5 5 5"/><path d="M5 4h14"/>');
+const ICON_TRASH = svgIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>');
+
+let ENGLISH_KEYS = null; // keys of the English template, for the upload preview
+let languageFileOk = false;
+
+const normalizeLangCode = (value) => String(value || "").trim().toLowerCase().replace(/_/g, "-");
+
+async function getEnglishKeys() {
+  if (!ENGLISH_KEYS) {
+    try {
+      const en = await (await fetch(`${SERVER_URL}/api/languages/en`)).json();
+      ENGLISH_KEYS = new Set(Object.keys(en.translations || {}));
+    } catch {
+      ENGLISH_KEYS = new Set();
+    }
+  }
+  return ENGLISH_KEYS;
+}
+
+/** Rebuild every language dropdown from the server's current list. */
+async function refreshLanguageDropdowns() {
+  try {
+    AVAILABLE_LANGUAGES = await (await fetch(`${SERVER_URL}/api/languages`)).json();
+  } catch {
+    return;
+  }
+  [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => {
+    if (!sel) return;
+    sel.innerHTML = AVAILABLE_LANGUAGES
+      .map((l) => `<option value="${escapeHtml(l.code)}">${escapeHtml(l.native_name)}</option>`)
+      .join("");
+    sel.value = CURRENT_LANG_CODE;
+  });
+}
+
+function downloadJsonFile(filename, object) {
+  const blob = new Blob([JSON.stringify(object, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadLanguage(code, filename) {
+  try {
+    const res = await fetch(`${SERVER_URL}/api/languages/${encodeURIComponent(code)}`);
+    if (!res.ok) throw new Error(`download failed (${res.status})`);
+    const pack = await res.json();
+    downloadJsonFile(filename || `${code}.json`, pack.translations);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function loadAdminLanguages() {
   const body = $("#admin-languages-body");
   if (!body) return; // this HTML build predates the Languages tab
+  ENGLISH_KEYS = null; // addons can add/remove keys; re-read on next use
   try {
     const langs = await api("/api/admin/languages");
-    body.innerHTML = langs.map((l) => `
+    body.innerHTML = langs.map((l) => {
+      const native = escapeHtml(l.native_name);
+      const english = escapeHtml(l.name);
+      const code = escapeHtml(l.code);
+      const missing = l.missing_count > 0
+        ? `<span class="coverage-chip" title="${escapeHtml(t("admin.keys_missing_tooltip", "These strings aren't translated yet and show in English."))}">${escapeHtml(t("admin.keys_missing", "{count} untranslated", { count: l.missing_count }))}</span>`
+        : "";
+      const replaceBtn = l.is_builtin ? "" : `<button type="button" class="icon-btn" title="${escapeHtml(t("admin.replace_language_tooltip", "Replace {name} with a new file", { name: l.native_name }))}" aria-label="${escapeHtml(t("admin.replace_language_tooltip", "Replace {name} with a new file", { name: l.native_name }))}" data-replace-language="${code}" data-name="${english}" data-native="${native}">${ICON_REPLACE}</button>`;
+      const deleteBtn = l.is_builtin ? "" : `<button type="button" class="icon-btn icon-btn-danger" title="${escapeHtml(t("admin.delete_language_tooltip", "Delete {name}", { name: l.native_name }))}" aria-label="${escapeHtml(t("admin.delete_language_tooltip", "Delete {name}", { name: l.native_name }))}" data-delete-language="${code}">${ICON_TRASH}</button>`;
+      return `
       <tr>
-        <td>${l.native_name}${l.name !== l.native_name ? ` <span class="extension-author">(${l.name})</span>` : ""}</td>
-        <td><code>${l.code}</code>${l.is_builtin ? ` <span class="extension-core-badge">${t("admin.built_in", "built-in")}</span>` : ""}</td>
-        <td>${l.key_count}</td>
-        <td>${l.is_builtin ? "" : `<button type="button" class="icon-btn icon-btn-danger" title="${t("admin.delete_language_tooltip", "Delete {name}", { name: l.native_name })}" data-delete-language="${l.code}">&#128465;</button>`}</td>
-      </tr>`).join("");
+        <td>${native}${l.name !== l.native_name ? ` <span class="extension-author">(${english})</span>` : ""}</td>
+        <td><code>${code}</code>${l.is_builtin ? ` <span class="extension-core-badge">${escapeHtml(t("admin.built_in", "built-in"))}</span>` : ""}</td>
+        <td>${l.key_count}${missing}</td>
+        <td class="col-actions"><span class="lang-actions">
+          <button type="button" class="icon-btn" title="${escapeHtml(t("admin.download_language_tooltip", "Download {name} as JSON", { name: l.native_name }))}" aria-label="${escapeHtml(t("admin.download_language_tooltip", "Download {name} as JSON", { name: l.native_name }))}" data-download-language="${code}">${ICON_DOWNLOAD}</button>
+          ${replaceBtn}${deleteBtn}
+        </span></td>
+      </tr>`;
+    }).join("");
+    $$("[data-download-language]").forEach((btn) => {
+      btn.addEventListener("click", () => downloadLanguage(btn.dataset.downloadLanguage));
+    });
+    $$("[data-replace-language]").forEach((btn) => {
+      btn.addEventListener("click", () => prefillLanguageForm(btn.dataset.replaceLanguage, btn.dataset.name, btn.dataset.native));
+    });
     $$("[data-delete-language]").forEach((btn) => {
       btn.addEventListener("click", () => onDeleteLanguage(btn.dataset.deleteLanguage));
     });
+    const list = $("#lang-known-list");
+    if (list && !list.children.length) {
+      list.innerHTML = Object.entries(KNOWN_LANGUAGES)
+        .map(([code, [english, native]]) => `<option value="${code}">${escapeHtml(english)} - ${escapeHtml(native)}</option>`)
+        .join("");
+    }
   } catch (err) {
-    body.innerHTML = `<tr><td colspan="4" class="form-error">${err.message}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="4" class="form-error">${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+function prefillLanguageForm(code, name, native) {
+  $("#lang-upload-code").value = code;
+  $("#lang-upload-name").value = name;
+  $("#lang-upload-native-name").value = native;
+  $("#language-form-title").textContent = t("admin.language_form_title_update", "Update language: {name}", { name: native || name });
+  $("#form-language-upload").scrollIntoView({ behavior: "smooth", block: "center" });
+  $("#language-upload-zone").classList.add("drag-active");
+  setTimeout(() => $("#language-upload-zone").classList.remove("drag-active"), 900);
+}
+
+function resetLanguageForm() {
+  $("#form-language-upload").reset();
+  $("#language-upload-filename").classList.add("hidden");
+  $("#language-upload-btn").disabled = true;
+  $("#language-form-title").textContent = t("admin.language_form_title", "Add or update a language");
+  setLanguageReport(null);
+  languageFileOk = false;
+}
+
+function setLanguageReport(kind, message) {
+  const el = $("#language-upload-report");
+  if (!el) return;
+  if (!kind) {
+    el.className = "language-report hidden";
+    el.textContent = "";
+    return;
+  }
+  el.className = `language-report ${kind}`;
+  el.textContent = message;
+}
+
+/** Fill the name fields from a known code, without clobbering anything typed. */
+function autofillFromCode() {
+  const input = $("#lang-upload-code");
+  input.value = normalizeLangCode(input.value);
+  const known = KNOWN_LANGUAGES[input.value];
+  if (!known) return;
+  const name = $("#lang-upload-name");
+  const native = $("#lang-upload-native-name");
+  if (!name.value.trim()) name.value = known[0];
+  if (!native.value.trim()) native.value = known[1];
+}
+
+/** Read and check the chosen file in the browser, before anything is sent. */
+async function inspectLanguageFile(file) {
+  languageFileOk = false;
+  const btn = $("#language-upload-btn");
+  btn.disabled = true;
+  if (!file) {
+    setLanguageReport(null);
+    return;
+  }
+
+  // "pt-br.json" -> suggest the code (only if the admin hasn't typed one).
+  const codeInput = $("#lang-upload-code");
+  const fromName = normalizeLangCode(file.name.replace(/\.json$/i, ""));
+  // Only for known codes: "pt_bom.json" must not become a made-up "pt-bom".
+  if (!codeInput.value.trim() && KNOWN_LANGUAGES[fromName] && fromName !== "en") {
+    codeInput.value = fromName;
+    autofillFromCode();
+  }
+
+  let parsed;
+  try {
+    // Strip a UTF-8 byte order mark (Notepad adds one) - JSON.parse rejects it.
+    parsed = JSON.parse((await file.text()).replace(/^\uFEFF/, ""));
+  } catch (err) {
+    setLanguageReport("err", t("admin.lang_report_invalid_json", "Not valid JSON: {error}", { error: err.message }));
+    return;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+      || !Object.values(parsed).every((v) => typeof v === "string")) {
+    setLanguageReport("err", t("admin.lang_report_not_flat", 'The file must be a flat object of text values, like {"key": "translated text"}.'));
+    return;
+  }
+  const keys = Object.keys(parsed);
+  if (!keys.length) {
+    setLanguageReport("err", t("admin.lang_report_empty", "The file has no translations in it."));
+    return;
+  }
+  const htmlKeys = keys.filter((k) => /<\s*[A-Za-z/!?]/.test(parsed[k]));
+  if (htmlKeys.length) {
+    const shown = htmlKeys.slice(0, 5).join(", ") + (htmlKeys.length > 5 ? "..." : "");
+    setLanguageReport("err", t("admin.lang_report_html", "Values can't contain HTML tags (check: {keys}).", { keys: shown }));
+    return;
+  }
+
+  const english = await getEnglishKeys();
+  const missing = [...english].filter((k) => !(k in parsed)).length;
+  const unknown = keys.filter((k) => !english.has(k)).length;
+  setLanguageReport(
+    missing || unknown ? "warn" : "ok",
+    t("admin.lang_report_ok", "{count} strings · {missing} untranslated (these fall back to English) · {unknown} not in the English template", { count: keys.length, missing, unknown }),
+  );
+  languageFileOk = true;
+  btn.disabled = false;
 }
 
 async function onDeleteLanguage(code) {
@@ -2113,37 +2302,44 @@ async function onDeleteLanguage(code) {
     // currently showing, fall back to English rather than leave the UI
     // pointed at translations that no longer exist server-side.
     if (CURRENT_LANG_CODE === code) await setLanguage("en");
-    // Someone else's dropdown might still be showing it too.
-    AVAILABLE_LANGUAGES = await (await fetch(SERVER_URL + "/api/languages")).json();
-    [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => {
-      if (!sel) return;
-      sel.innerHTML = AVAILABLE_LANGUAGES.map((l) => `<option value="${l.code}">${l.native_name}</option>`).join("");
-      sel.value = CURRENT_LANG_CODE;
-    });
+    await refreshLanguageDropdowns();
   } catch (err) {
     alert(err.message);
   }
 }
 
-async function onUploadLanguage() {
+async function onUploadLanguage(event) {
+  if (event) event.preventDefault();
   const codeInput = $("#lang-upload-code");
   const nameInput = $("#lang-upload-name");
   const nativeInput = $("#lang-upload-native-name");
   const fileInput = $("#language-upload-input");
   const result = $("#language-upload-result");
+  const fail = (message) => { result.textContent = message; result.className = "form-result err"; };
+
   const file = fileInput.files[0];
-  if (!file) {
-    result.textContent = t("admin.choose_json_first", "Choose a .json file first.");
-    result.className = "form-result err";
-    return;
+  if (!file) return fail(t("admin.choose_json_first", "Choose a .json file first."));
+  if (!languageFileOk) return fail($("#language-upload-report").textContent || t("admin.choose_json_first", "Choose a .json file first."));
+
+  const code = normalizeLangCode(codeInput.value);
+  codeInput.value = code;
+  if (!LANG_CODE_RE.test(code)) {
+    codeInput.focus();
+    return fail(t("admin.language_code_invalid", 'Enter a language code like "es", "fil" or "pt-br".'));
   }
+  const name = nameInput.value.trim();
+  if (!name) {
+    nameInput.focus();
+    return fail(t("admin.language_name_required", "Enter the language's English name."));
+  }
+
   result.textContent = t("common.uploading", "Uploading...");
   result.className = "form-result";
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("code", codeInput.value.trim().toLowerCase());
-  formData.append("name", nameInput.value.trim());
-  formData.append("native_name", nativeInput.value.trim() || nameInput.value.trim());
+  formData.append("code", code);
+  formData.append("name", name);
+  formData.append("native_name", nativeInput.value.trim() || name);
   try {
     const res = await fetch(`${SERVER_URL}/api/admin/languages/upload`, {
       method: "POST",
@@ -2152,21 +2348,17 @@ async function onUploadLanguage() {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `upload failed (${res.status})`);
-    result.textContent = t("admin.language_saved", 'Saved "{name}" ({count} translated strings).', { name: body.native_name, count: body.key_count });
+    result.textContent = body.missing_count
+      ? t("admin.language_saved_missing", 'Saved "{name}": {count} strings, {missing} still fall back to English.', { name: body.native_name, count: body.key_count, missing: body.missing_count })
+      : t("admin.language_saved", 'Saved "{name}" ({count} translated strings).', { name: body.native_name, count: body.key_count });
     result.className = "form-result ok";
-    $("#form-language-upload").reset();
-    $("#language-upload-filename").classList.add("hidden");
-    $("#language-upload-btn").disabled = true;
+    resetLanguageForm();
     await loadAdminLanguages();
-    AVAILABLE_LANGUAGES = await (await fetch(SERVER_URL + "/api/languages")).json();
-    [$("#lang-select-auth"), $("#lang-select-main")].forEach((sel) => {
-      if (!sel) return;
-      sel.innerHTML = AVAILABLE_LANGUAGES.map((l) => `<option value="${l.code}">${l.native_name}</option>`).join("");
-      sel.value = CURRENT_LANG_CODE;
-    });
+    await refreshLanguageDropdowns();
+    // Editing the language you're currently using: show the new text right away.
+    if (body.code === CURRENT_LANG_CODE) await setLanguage(CURRENT_LANG_CODE, { persist: false });
   } catch (err) {
-    result.textContent = err.message;
-    result.className = "form-result err";
+    fail(err.message);
   }
 }
 
@@ -2252,20 +2444,20 @@ function wireLanguageUploadDropzone() {
   const zone = $("#language-upload-zone");
   const input = $("#language-upload-input");
   const filenameEl = $("#language-upload-filename");
-  const btn = $("#language-upload-btn");
-  if (!zone || !input || !btn) return; // this HTML build predates the Languages tab
+  const form = $("#form-language-upload");
+  if (!zone || !input || !form) return; // this HTML build predates the Languages tab
 
-  function syncFromInput() {
+  async function syncFromInput() {
     const file = input.files[0];
+    $("#language-upload-result").textContent = "";
     if (file) {
       filenameEl.textContent = file.name;
       filenameEl.classList.remove("hidden");
-      btn.disabled = false;
     } else {
       filenameEl.textContent = "";
       filenameEl.classList.add("hidden");
-      btn.disabled = true;
     }
+    await inspectLanguageFile(file);
   }
 
   input.addEventListener("change", syncFromInput);
@@ -2277,9 +2469,13 @@ function wireLanguageUploadDropzone() {
   });
   zone.addEventListener("drop", () => {
     zone.classList.remove("drag-active");
-    setTimeout(syncFromInput, 0);
+    setTimeout(syncFromInput, 0); // let the native drop populate input.files first
   });
-  btn.addEventListener("click", onUploadLanguage);
+
+  // Typing/choosing a known code pre-fills the names; Enter in any field submits.
+  $("#lang-upload-code").addEventListener("change", autofillFromCode);
+  $("#lang-upload-code").addEventListener("blur", autofillFromCode);
+  form.addEventListener("submit", onUploadLanguage);
 }
 
 function wireUploadDropzone({ zoneId, inputId, filenameId, btnId, resultId, kind }) {
@@ -2413,6 +2609,10 @@ function onGenerateFlag() {
 }
 
 function openChallengeForm(c) {
+  // An older challenge whose description embeds a [[coding-task]] block opens
+  // as a normal code challenge; saving migrates it to the new storage.
+  const legacy = splitLegacyCodingTask(c);
+  if (legacy) c = { ...c, type: "code", description: legacy.description, code_config: JSON.stringify(legacy.task) };
   EDITING_CHALLENGE_ID = c ? c.id : null;
   $("#challenge-form-title").textContent = c ? t("admin.edit_challenge", "Edit challenge") : t("admin.new_challenge", "New challenge");
   $("#cf-id").value = c ? c.id : "";
@@ -2430,6 +2630,12 @@ function openChallengeForm(c) {
   $("#cf-web-wrap").classList.toggle("hidden", (c ? c.type : "standard") !== "web");
   $("#cf-ai-wrap").classList.toggle("hidden", (c ? c.type : "standard") !== "ai");
   $("#cf-quiz-wrap").classList.toggle("hidden", (c ? c.type : "standard") !== "quiz");
+  $("#cf-code-wrap").classList.toggle("hidden", (c ? c.type : "standard") !== "code");
+  if (c && c.type === "code") {
+    let codeConfig = null;
+    try { codeConfig = c.code_config ? JSON.parse(c.code_config) : null; } catch { codeConfig = null; }
+    setCodeBuilder(codeConfig);
+  }
   let webConfig = {};
   try { webConfig = c && c.web_config ? JSON.parse(c.web_config) : {}; } catch { webConfig = {}; }
   $("#cf-web-behavior").value = webConfig.behavior || "hidden_path";
@@ -2488,6 +2694,252 @@ function openChallengeForm(c) {
   $("#modal-challenge-form").classList.remove("hidden");
 }
 
+// ---- Admin: Code challenge builder -------------------------------------------
+// Authoring UI for challenges of type "code". The result is the same JSON the
+// Code Challenge Editor addon documents (AUTHORING.md), stored in
+// Challenge.code_config - so nobody has to hand-write a [[coding-task]] block.
+
+const CODE_LANGS = [
+  ["javascript", "JavaScript"], ["python", "Python"], ["php", "PHP"], ["ruby", "Ruby"],
+  ["c", "C"], ["cpp", "C++"], ["java", "Java"],
+];
+const CODE_STATIC_LANGS = ["c", "cpp", "java"];
+const CODE_TYPES = ["int", "double", "bool", "string", "int[]", "int[][]"];
+const CODING_TASK_BLOCK_RE = /\[\[coding-task\]\]([\s\S]*?)\[\[\/coding-task\]\]\s*/;
+const CODE_IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+let codeBuilderReady = false;
+
+function codeTypeOptions(selected) {
+  const any = `<option value=""${selected === "" ? " selected" : ""}>${escapeHtml(t("builder.code_type_any", "any (JS/Python/PHP/Ruby only)"))}</option>`;
+  return any + CODE_TYPES.map((ty) => `<option value="${ty}"${ty === selected ? " selected" : ""}>${ty}</option>`).join("");
+}
+
+function ensureCodeBuilder() {
+  if (codeBuilderReady || !$("#cf-code-wrap")) return;
+  codeBuilderReady = true;
+  $("#cf-code-lang").innerHTML = CODE_LANGS.map(([id, label]) => `<option value="${id}">${label}</option>`).join("");
+  $("#cf-code-langs").innerHTML = CODE_LANGS.map(([id, label]) =>
+    `<label class="code-lang-check"><input type="checkbox" value="${id}" /> <span>${label}</span></label>`).join("");
+  $("#cf-code-verify-lang").innerHTML = $("#cf-code-lang").innerHTML;
+  $("#cf-code-return").innerHTML = codeTypeOptions("int");
+
+  $("#cf-code-add-param").addEventListener("click", () => { addCodeParamRow(); syncCodeLanguageAvailability(); });
+  $("#cf-code-add-test").addEventListener("click", () => addCodeTestRow());
+  $("#cf-code-return").addEventListener("change", syncCodeLanguageAvailability);
+  $("#cf-code-lang").addEventListener("change", () => {
+    const box = $(`#cf-code-langs input[value="${$("#cf-code-lang").value}"]`);
+    if (box && !box.disabled) box.checked = true;
+  });
+  $("#cf-code-verify-btn").addEventListener("click", runCodeVerify);
+}
+
+function addCodeParamRow(name = "", type = "int") {
+  const row = document.createElement("div");
+  row.className = "code-param-row";
+  row.innerHTML = `
+    <input type="text" class="code-param-name" value="${escapeHtml(name)}" placeholder="${escapeHtml(t("builder.code_param_name", "parameter name"))}" spellcheck="false" autocomplete="off" />
+    <select class="code-param-type">${codeTypeOptions(type)}</select>
+    <button type="button" class="icon-btn icon-btn-danger" title="${escapeHtml(t("builder.code_remove", "Remove"))}" aria-label="${escapeHtml(t("builder.code_remove", "Remove"))}">&times;</button>`;
+  row.querySelector("button").addEventListener("click", () => { row.remove(); syncCodeLanguageAvailability(); });
+  row.querySelector("select").addEventListener("change", syncCodeLanguageAvailability);
+  $("#cf-code-params").appendChild(row);
+}
+
+function parseCodeArgs(text) {
+  // "[1, 2], 3" -> [[1,2],3]: one JSON value per parameter, comma-separated.
+  return JSON.parse(`[${text}]`);
+}
+
+function addCodeTestRow(args = "", expect = "", hidden = false) {
+  const row = document.createElement("div");
+  row.className = "code-test-row";
+  row.innerHTML = `
+    <input type="text" class="code-test-args" value="${escapeHtml(args)}" placeholder='[1, 2, 3]' spellcheck="false" autocomplete="off" />
+    <input type="text" class="code-test-expect" value="${escapeHtml(expect)}" placeholder="6" spellcheck="false" autocomplete="off" />
+    <label class="code-test-hidden" title="${escapeHtml(t("builder.code_test_hidden_tip", "Players see only pass/fail for this test"))}"><input type="checkbox" ${hidden ? "checked" : ""} /></label>
+    <button type="button" class="icon-btn icon-btn-danger" title="${escapeHtml(t("builder.code_remove", "Remove"))}" aria-label="${escapeHtml(t("builder.code_remove", "Remove"))}">&times;</button>`;
+  const check = () => {
+    const argsInput = row.querySelector(".code-test-args");
+    const expectInput = row.querySelector(".code-test-expect");
+    let argsOk = true;
+    let expectOk = true;
+    try { parseCodeArgs(argsInput.value); } catch { argsOk = false; }
+    try { JSON.parse(expectInput.value); } catch { expectOk = false; }
+    argsInput.classList.toggle("invalid", !argsOk);
+    expectInput.classList.toggle("invalid", !expectOk && expectInput.value !== "");
+  };
+  row.querySelectorAll("input[type=text]").forEach((el) => el.addEventListener("input", check));
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  $("#cf-code-tests").appendChild(row);
+  check();
+}
+
+/** Static languages need a type on every parameter and the return value. */
+function codeSignatureIsTyped() {
+  const types = [...$$("#cf-code-params .code-param-type")].map((s) => s.value);
+  return $("#cf-code-return").value !== "" && types.every((ty) => ty !== "");
+}
+
+function syncCodeLanguageAvailability() {
+  const typed = codeSignatureIsTyped();
+  CODE_STATIC_LANGS.forEach((id) => {
+    const box = $(`#cf-code-langs input[value="${id}"]`);
+    if (!box) return;
+    box.disabled = !typed;
+    if (!typed) box.checked = false;
+    box.closest("label").classList.toggle("disabled", !typed);
+  });
+  [$("#cf-code-lang"), $("#cf-code-verify-lang")].forEach((sel) => {
+    [...sel.options].forEach((opt) => { if (CODE_STATIC_LANGS.includes(opt.value)) opt.disabled = !typed; });
+    if (!typed && CODE_STATIC_LANGS.includes(sel.value)) sel.value = "javascript";
+  });
+}
+
+/** Fill the panel from a code_config object (or sensible defaults). */
+function setCodeBuilder(task) {
+  ensureCodeBuilder();
+  const cfg = task || {};
+  const typed = Array.isArray(cfg.parameter_types) && typeof cfg.return_type === "string";
+  $("#cf-code-fn").value = cfg.function_name || "";
+  $("#cf-code-params").innerHTML = "";
+  const names = Array.isArray(cfg.parameter_names) ? cfg.parameter_names : [];
+  const argCount = cfg.tests && cfg.tests[0] && Array.isArray(cfg.tests[0].args) ? cfg.tests[0].args.length : (typed ? cfg.parameter_types.length : 0);
+  for (let i = 0; i < argCount; i++) {
+    addCodeParamRow(names[i] || `arg${i + 1}`, typed ? (cfg.parameter_types[i] || "") : "");
+  }
+  $("#cf-code-return").innerHTML = codeTypeOptions(typed ? cfg.return_type : (task ? "" : "int"));
+  const languages = Array.isArray(cfg.languages) && cfg.languages.length
+    ? cfg.languages
+    : (task ? (typed ? CODE_LANGS.map(([id]) => id) : ["javascript", "python", "php", "ruby"]) : ["javascript", "python"]);
+  $$("#cf-code-langs input").forEach((box) => { box.checked = languages.includes(box.value); });
+  $("#cf-code-lang").value = cfg.language || languages[0] || "javascript";
+  $("#cf-code-verify-lang").value = $("#cf-code-lang").value;
+  $("#cf-code-instructions").value = cfg.instructions || "";
+  $("#cf-code-starter").value = cfg.starter_code || "";
+  $("#cf-code-tests").innerHTML = "";
+  (cfg.tests || []).forEach((tc) => addCodeTestRow(
+    (tc.args || []).map((a) => JSON.stringify(a)).join(", "),
+    JSON.stringify(tc.expect),
+    Boolean(tc.hidden),
+  ));
+  if (!(cfg.tests || []).length) addCodeTestRow();
+  $("#cf-code-verify-code").value = "";
+  $("#cf-code-verify-result").innerHTML = "";
+  syncCodeLanguageAvailability();
+}
+
+/** Read the panel into a code_config. Returns {task, error} (error is user-facing text). */
+function readCodeBuilder() {
+  ensureCodeBuilder();
+  const fail = (key, fallback, vars) => ({ task: null, error: t(key, fallback, vars) });
+  const fn = $("#cf-code-fn").value.trim();
+  if (!CODE_IDENT_RE.test(fn)) return fail("builder.code_err_function", "Function name must be a valid identifier (letters, digits, underscores; not starting with a digit).");
+
+  const rows = [...$$("#cf-code-params .code-param-row")];
+  const names = rows.map((r) => r.querySelector(".code-param-name").value.trim());
+  if (names.some((n) => !CODE_IDENT_RE.test(n))) return fail("builder.code_err_param", "Every parameter needs a valid name (letters, digits, underscores).");
+  if (new Set(names).size !== names.length) return fail("builder.code_err_param_dup", "Parameter names must be different from each other.");
+
+  const typed = codeSignatureIsTyped();
+  const languages = [...$$("#cf-code-langs input:checked")].map((b) => b.value);
+  if (!languages.length) return fail("builder.code_err_languages", "Choose at least one language.");
+  if (languages.some((l) => CODE_STATIC_LANGS.includes(l)) && !typed) {
+    return fail("builder.code_err_typed", "C, C++ and Java need a type for every parameter and the return value.");
+  }
+
+  const testRows = [...$$("#cf-code-tests .code-test-row")];
+  if (!testRows.length) return fail("builder.code_err_no_tests", "Add at least one test.");
+  const tests = [];
+  for (let i = 0; i < testRows.length; i++) {
+    const row = testRows[i];
+    let args;
+    let expect;
+    try { args = parseCodeArgs(row.querySelector(".code-test-args").value); } catch {
+      return fail("builder.code_err_args", "Test {n}: the arguments aren't valid JSON values (strings need double quotes).", { n: i + 1 });
+    }
+    if (args.length !== names.length) {
+      return fail("builder.code_err_arg_count", "Test {n}: expected {expected} argument(s) but found {found}.", { n: i + 1, expected: names.length, found: args.length });
+    }
+    try { expect = JSON.parse(row.querySelector(".code-test-expect").value); } catch {
+      return fail("builder.code_err_expect", "Test {n}: the expected result isn't valid JSON.", { n: i + 1 });
+    }
+    const test = { args, expect };
+    if (row.querySelector("input[type=checkbox]").checked) test.hidden = true;
+    tests.push(test);
+  }
+
+  let language = $("#cf-code-lang").value;
+  if (!languages.includes(language)) language = languages[0];
+  const task = { function_name: fn, language, languages, tests };
+  if (names.length) task.parameter_names = names;
+  if (typed) {
+    task.parameter_types = rows.map((r) => r.querySelector(".code-param-type").value);
+    task.return_type = $("#cf-code-return").value;
+  }
+  const instructions = $("#cf-code-instructions").value.trim();
+  if (instructions) task.instructions = instructions;
+  const starter = $("#cf-code-starter").value;
+  if (starter.trim()) task.starter_code = starter;
+  return { task, error: null };
+}
+
+async function runCodeVerify() {
+  const out = $("#cf-code-verify-result");
+  const { task, error } = readCodeBuilder();
+  if (error) { out.innerHTML = `<p class="form-error">${escapeHtml(error)}</p>`; return; }
+  const code = $("#cf-code-verify-code").value;
+  if (!code.trim()) { out.innerHTML = `<p class="form-error">${escapeHtml(t("builder.code_verify_empty", "Paste a reference solution first."))}</p>`; return; }
+  const language = $("#cf-code-verify-lang").value;
+  if (!task.languages.includes(language)) {
+    out.innerHTML = `<p class="form-error">${escapeHtml(t("builder.code_verify_lang_off", "That language isn't ticked in \"Languages players can use\"."))}</p>`;
+    return;
+  }
+  const btn = $("#cf-code-verify-btn");
+  btn.disabled = true;
+  out.innerHTML = `<p class="field-note">${escapeHtml(t("addon.code-challenge.running", "Running..."))}</p>`;
+  try {
+    const res = await api("/api/admin/code-challenge/verify", { method: "POST", body: JSON.stringify({ code_config: task, language, code }) });
+    const rows = res.results.map((r, i) => {
+      const call = `${task.function_name}(${task.tests[i].args.map((a) => JSON.stringify(a)).join(", ")})`;
+      const detail = r.passed ? "" : (r.status === "Wrong Answer" || r.status === "Accepted"
+        ? `${escapeHtml(t("addon.code-challenge.expected_label", "expected"))} <code>${escapeHtml(JSON.stringify(r.expected))}</code> · ${escapeHtml(t("addon.code-challenge.actual_label", "actual"))} <code>${escapeHtml(JSON.stringify(r.actual))}</code>`
+        : escapeHtml([r.status, r.compile_output || r.stderr].filter(Boolean).join(": ")));
+      return `<div class="code-verify-row ${r.passed ? "pass" : "fail"}"><span>${r.passed ? "&#10003;" : "&#10007;"}</span><code>${escapeHtml(call)}</code>${detail ? `<small>${detail}</small>` : ""}</div>`;
+    }).join("");
+    const failed = res.results.filter((r) => !r.passed).length;
+    const summary = failed
+      ? t("builder.code_verify_failed", "{failed} of {total} tests failed with this solution.", { failed, total: res.results.length })
+      : t("builder.code_verify_ok", "All {total} tests pass with this solution.", { total: res.results.length });
+    out.innerHTML = `<p class="${failed ? "form-error" : "form-result ok"}">${escapeHtml(summary)}</p>${rows}`;
+  } catch (err) {
+    out.innerHTML = `<p class="form-error">${escapeHtml(err.message)}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/** Challenges authored the old way (a [[coding-task]] block inside the
+ * description) are shown in the builder as normal code challenges. Saving
+ * moves the block into code_config and cleans the description. */
+function splitLegacyCodingTask(c) {
+  if (!c || c.type === "code" || !CODING_TASK_BLOCK_RE.test(c.description || "")) return null;
+  try {
+    const task = JSON.parse(c.description.match(CODING_TASK_BLOCK_RE)[1]);
+    if (!task || typeof task.function_name !== "string" || !Array.isArray(task.tests)) return null;
+    return { task, description: c.description.replace(CODING_TASK_BLOCK_RE, "").trim() };
+  } catch {
+    return null;
+  }
+}
+
+const CODE_PRESET = {
+  function_name: "addNumbers", language: "javascript", languages: ["javascript", "python", "cpp"],
+  parameter_names: ["a", "b"], parameter_types: ["int", "int"], return_type: "int",
+  instructions: "Return the sum of a and b.",
+  tests: [{ args: [1, 2], expect: 3 }, { args: [10, -4], expect: 6 }, { args: [0, 0], expect: 0 }, { args: [-7, -3], expect: -10, hidden: true }],
+};
+
 const CHALLENGE_PRESETS = {
   web: {
     category: "web", type: "web", difficulty: "easy", points: 100,
@@ -2515,6 +2967,11 @@ const CHALLENGE_PRESETS = {
     hint: "",
     quiz: true,
   },
+  code: {
+    category: "coding", type: "code", difficulty: "easy", points: 100,
+    title: "Add Two Numbers", description: "Write the function described below. Every test must pass to reveal the flag.",
+    rules: "", hint: "", code: true,
+  },
 };
 
 function applyChallengePreset(name) {
@@ -2535,6 +2992,8 @@ function applyChallengePreset(name) {
   $("#cf-web-wrap").classList.toggle("hidden", preset.type !== "web");
   $("#cf-ai-wrap").classList.toggle("hidden", preset.type !== "ai");
   $("#cf-quiz-wrap").classList.toggle("hidden", preset.type !== "quiz");
+  $("#cf-code-wrap").classList.toggle("hidden", preset.type !== "code");
+  if (preset.code) setCodeBuilder(CODE_PRESET);
   if (preset.web) {
     $("#cf-web-behavior").value = "xss";
     $("#cf-web-title").value = "Internal site";
@@ -2619,6 +3078,15 @@ async function onSaveChallenge(e) {
       options,
       correct_index: Number($("#cf-quiz-correct").value),
     });
+  }
+  if ($("#cf-type").value === "code") {
+    const { task, error } = readCodeBuilder();
+    if (error) {
+      result.textContent = error;
+      result.className = "form-result err";
+      return;
+    }
+    payload.code_config = JSON.stringify(task);
   }
   if (flag) payload.flag = flag;
 

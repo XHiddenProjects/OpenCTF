@@ -19,6 +19,9 @@ It consists of:
 - Interactive terminal challenges with a server-side virtual filesystem
 - Sandboxed web challenges served by a separate target process
 - Optional AI challenges powered by a local Ollama model
+- Code challenges: a built-in editor (JavaScript, Python, PHP, Ruby, C, C++, Java) that runs players' code against your tests **offline, on the server's own machine**, with a guided builder for authoring them (see [docs/CODE_RUNNER.md](docs/CODE_RUNNER.md))
+- Player toolkit addon: converters with automatic multi-layer decoding, classical ciphers, hashing, a JWT decoder, a file inspector and frequency analysis, all running locally in the client
+- Stats addon: leaderboard and score-over-time charts with hover tooltips
 - Admin panel for challenge and user management
 - Server-wide addon and theme system, managed live from the admin panel — configurable addons, instant updates to every open client, and installing via `.zip` upload (see [docs/ADDON_DEVELOPMENT.md](docs/ADDON_DEVELOPMENT.md))
 - User profiles with display name, biography, and avatar
@@ -58,6 +61,7 @@ The default database is SQLite at `server/instance/ctf.db`. Flags are not stored
 - A Linux host is recommended for a lab deployment
 - Network access to ports `5000` and, when web challenges are enabled, `5001`
 - Optional: [Ollama](https://ollama.com/) for AI challenges
+- Optional: language runtimes for code challenges (Node.js, PHP, Ruby, gcc/g++, a JDK). Python works out of the box, and the editor only offers languages the server can run. On Linux, `bubblewrap` adds real sandboxing. See [docs/CODE_RUNNER.md](docs/CODE_RUNNER.md)
 
 ### Client
 
@@ -196,6 +200,10 @@ Copy `server/.env.example` to `server/.env` and configure these variables:
 | `TARGET_PORT` | Port used by `target_app.py`, default `5001` |
 | `OLLAMA_URL` | Ollama API URL, default `http://127.0.0.1:11434` |
 | `OLLAMA_MODEL` | Ollama model name, default `llama3.2` |
+| `CODE_RUNNER` | `local` (default, runs offline on this machine) or `judge0`; see [docs/CODE_RUNNER.md](docs/CODE_RUNNER.md) |
+| `CODE_RUNNER_SANDBOX` | `auto` (default), `bwrap`, `netns` or `none` isolation for player code |
+| `CODE_RUNNER_REQUIRE_SANDBOX` | Set to `1` to refuse running player code unless the strong (bubblewrap) sandbox is active |
+| `JUDGE0_CE_ENDPOINT` | Only when `CODE_RUNNER=judge0`: your Judge0 server's base URL |
 
 Generate strong values for secrets rather than reusing passwords. Do not commit `.env`, database files, or access tokens.
 
@@ -232,6 +240,7 @@ Supported challenge types are:
 - **Terminal:** a server-side virtual filesystem explored with `ls`, `cd`, `cat`, `pwd`, `grep`, `find`, `file`, `strings`, `head`/`tail`, `wc`, `chmod`, and two simulated security-tool commands, `john` (dictionary-attack a `user:hash` file against a wordlist file, both read from the sandboxed filesystem) and `nmap` (print a pre-authored, pre-formatted scan report for a target defined at `/network/scans/<target>.nmap` in the challenge's filesystem; `-sV` reveals the full version/banner text, `-p` filters by port). Type `help` inside any terminal challenge for the full command reference.
 - **Web:** an isolated target page served by `target_app.py`.
 - **AI:** a conversation challenge backed by the configured Ollama model.
+- **Code challenge:** players write a function in an in-client editor and the server runs it against your tests. Build one in **New challenge -> Type: Code challenge**: set the function signature, the languages, and the tests (optionally hidden ones), then check them against a reference solution before publishing. See [server/addons/code-challenge/AUTHORING.md](server/addons/code-challenge/AUTHORING.md).
 
 ### Terminal filesystem format
 
@@ -274,7 +283,7 @@ For a real lab session, run the API under Gunicorn rather than Flask's developme
 
 ```bash
 cd server
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
+gunicorn -w 4 --timeout 120 -b 0.0.0.0:5000 app:app
 ```
 
 The isolated target process is currently started by `app.py`; plan its lifecycle and network policy accordingly when moving beyond a small lab deployment.
@@ -321,6 +330,7 @@ Before a session:
 - Keep `target_app.py` isolated and do not expose it to the public internet.
 - Back up the database and test restoring it.
 - Run the API behind Gunicorn or another production WSGI server.
+- If you use code challenges with players you don't know, read the isolation section of [docs/CODE_RUNNER.md](docs/CODE_RUNNER.md): install bubblewrap (Linux) and set `CODE_RUNNER_REQUIRE_SANDBOX=1`, or use a self-hosted Judge0. Without a sandbox, player code can read files the server can read.
 - Treat challenge descriptions, uploaded files, and target behavior as untrusted training content.
 - Add network and request rate limiting at the reverse proxy for larger events.
 

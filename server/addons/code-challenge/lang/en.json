@@ -17,6 +17,15 @@
   "addon.code-challenge.language_label": "Language",
   "addon.code-challenge.console_server_run": "(server-side execution - no local console output)",
   "addon.code-challenge.meta.name": "Code Challenge Editor",
-  "addon.code-challenge.meta.description": "Adds a code editor for JavaScript, Python, PHP, Ruby, C, C++, and Java challenges. Judge0 checks every test, and the flag is revealed only after all tests pass.",
-  "addon.code-challenge.config.font_size_label": "Editor font size (px)"
+  "addon.code-challenge.meta.description": "Adds a code editor for JavaScript, Python, PHP, Ruby, C, C++, and Java challenges. Code is checked against every test on the server (offline by default), and the flag is revealed only after all tests pass.",
+  "addon.code-challenge.config.font_size_label": "Editor font size (px)",
+  "addon.code-challenge.no_runtime": "None of this challenge's languages is installed on the server, so it can't run code right now. Ask an admin.",
+  "addon.code-challenge.hidden_test": "Hidden test",
+  "addon.code-challenge.console_none": "(your code didn't print anything)",
+  "addon.code-challenge.config.runner_title": "Code runner",
+  "addon.code-challenge.config.runner_backend": "Backend",
+  "addon.code-challenge.config.runner_sandbox": "Isolation",
+  "addon.code-challenge.config.runner_languages": "Languages on this server",
+  "addon.code-challenge.config.runner_not_installed": "not installed",
+  "addon.code-challenge.config.runner_unavailable": "Couldn't read runner status: {error}"
 }

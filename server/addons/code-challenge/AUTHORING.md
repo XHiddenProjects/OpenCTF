@@ -1,17 +1,51 @@
 # Authoring a coding challenge
 
-This addon needs **no backend or database changes** - it works entirely off
-the free-text **Description** field every ordinary (`type: "standard"`)
-challenge already has, the same field you fill in from **Admin -> New
-Challenge** today. Nothing about the challenge type changes; you're just
-putting a specially-marked block inside the description.
+There are two ways to make one. **Use the builder** unless you're scripting
+challenges in bulk.
 
-## The `[[coding-task]]` block
+## 1. The builder (recommended)
 
-Paste this into a challenge's Description, anywhere - text before and after
-it is shown to the player as normal, the block itself is detected, parsed,
-and then stripped back out before the description is displayed, so players
-never see the raw JSON:
+**Admin -> Challenges -> New challenge**, then pick **Code challenge** as the
+Type (or choose the *Code challenge (function + tests)* template to start from a
+working example). The form asks for:
+
+| Field | What it does |
+| --- | --- |
+| Function name | The name players' code must define. |
+| Signature | A name and type for each parameter, and the return type. Give every one a type to allow C, C++ and Java; choose **any** if the function takes objects or mixed values (then only JavaScript, Python, PHP and Ruby are offered). |
+| Languages players can use | Which languages appear in the editor. C/C++/Java are greyed out until the signature is fully typed. |
+| Instructions | Shown above the editor. |
+| Starter code | Optional. Left empty, each language gets a stub generated from the signature (so the editor is never blank and the parameter names match your tests). |
+| Tests | One row per test: the arguments as comma-separated JSON values (`[1, 2, 3]`, or `"abc", 5` for two parameters) and the expected result as JSON. Tick **Hidden** to show players only pass/fail for that test. |
+
+The usual Flag, Points, Difficulty and Hint fields work exactly as for any other
+challenge, and **the flag players receive is always the challenge's own flag**:
+changing it later in the Flag field is enough, there's nothing else to keep in sync.
+
+**Check your tests before publishing.** Open *Check your tests with a reference
+solution*, paste a working solution, and press *Run check*. It runs your
+(unsaved) tests against it and shows every result, including hidden tests. A
+failing test almost always means a wrong expected value. Nothing is saved by the check.
+
+**Hidden tests.** Players see the visible tests' arguments and expected values,
+so a determined player can hard-code those answers. Add a couple of hidden
+tests (the template includes one) and a solution that special-cases the visible
+examples will still fail. For hidden tests players never see the arguments,
+expected value, actual value or program output, only pass/fail.
+
+Challenges still using the older `[[coding-task]]` block (below) open in the
+same builder; saving converts them to the new storage and removes the block
+from the description.
+
+## 2. The `[[coding-task]]` block (older format, still supported)
+
+This addon works off the free-text **Description** field of an ordinary
+challenge. Paste this into a challenge's Description, anywhere - text before
+and after it is shown to the player as normal, the block itself is detected,
+parsed, and then stripped back out before the description is displayed, so
+players never see the raw JSON. Challenges created in the builder store the
+exact same JSON in the `code_config` column instead (the format below is the
+same, minus `flag`, which isn't needed there):
 
 ```
 Implement a function that reverses a string, without using .reverse().
@@ -24,7 +58,8 @@ Implement a function that reverses a string, without using .reverse().
   "tests": [
     { "args": ["hello"], "expect": "olleh" },
     { "args": ["OpenCTF"], "expect": "FTCnepO" },
-    { "args": [""], "expect": "" }
+    { "args": [""], "expect": "" },
+    { "args": ["abc"], "expect": "cba", "hidden": true }
   ],
   "flag": "OCTF{r3v3rs3_th3_str1ng}"
 }
@@ -34,15 +69,16 @@ Implement a function that reverses a string, without using .reverse().
 | Field | Required | Notes |
 | --- | --- | --- |
 | `function_name` | yes | The exact name the player's code must define. |
-| `starter_code` | yes | Pre-filled into the editor. Should at least declare the function so the editor isn't blank. |
-| `tests` | yes | Array of `{ "args": [...], "expect": ... }`. `args` is spread as positional arguments into a call to `function_name`; `expect` is compared against the return value with a structural (`JSON.stringify`) comparison, so arrays/objects/numbers/strings/booleans all work, but key **order** in an expected object must match what your reference solution actually produces. |
-| `flag` | yes | Kept server-side and returned only after every test passes; it is not included in the challenge listing or task metadata. |
-| `instructions` | no | Short extra guidance shown above the editor. Falls back to nothing. |
-| `language` | no | Initial runnable language. Defaults to `"javascript"`. |
-| `languages` | no | Runnable languages offered in the editor dropdown. Defaults to the runtimes supported by the task signature. |
-| `parameter_names` | for C/C++/Java | Argument names used in generated starter signatures, in the same order as test `args`. |
-| `parameter_types` | for C/C++/Java | Typed signature values such as `int`, `double`, `bool`, `string`, `int[]`, and `int[][]`. |
-| `return_type` | for C/C++/Java | The result type, using the same type names as `parameter_types`. |
+| `tests` | yes | Array of `{ "args": [...], "expect": ..., "hidden": false }`. `args` is spread as positional arguments into a call to `function_name`; `expect` is compared with the return value structurally (objects compare regardless of key order, `true` is not equal to `1`). Every test needs the same number of arguments. |
+| `flag` | block format only | Kept server-side and returned only after every test passes. For builder challenges the challenge's own flag is used. |
+| `starter_code` | no | Pre-filled into the editor for the default `language`. If omitted a stub is generated per language from the signature. |
+| `instructions` | no | Short extra guidance shown above the editor. |
+| `language` | no | Initial runnable language. Defaults to the first of `languages`. |
+| `languages` | no | Runnable languages offered in the dropdown. Defaults to the runtimes supported by the task signature. |
+| `parameter_names` | no | Argument names used in generated starter code, in the same order as the test `args`. |
+| `parameter_types` | for C/C++/Java | Types: `int`, `double`, `bool`, `string`, `int[]`, `int[][]`. |
+| `return_type` | for C/C++/Java | The result type, using the same names. |
+| `starter_code_by_language` | no | Custom starter code per language. |
 
 ## Syntax highlighting
 
@@ -57,11 +93,10 @@ addon). `language` accepts:
 Anything else (or `plaintext`) falls back to plain, uncolored text rather
 than erroring.
 
-The selected runnable language controls both syntax highlighting and the
-Judge0 runtime. Supported backends are JavaScript, Python, PHP, Ruby, C,
-C++, and Java. C, C++, and Java require explicit typed signatures; their
-function stubs are generated from `parameter_names`, `parameter_types`,
-and `return_type`.
+The selected runnable language controls both syntax highlighting and which
+test harness runs the code. The runnable languages are JavaScript, Python,
+PHP, Ruby, C, C++ and Java. C, C++ and Java require an explicit typed
+signature (`parameter_types` and `return_type`).
 
 The actual colors (and the editor's background/border/gutter/caret) are
 themeable - see the `--cc-*` custom properties documented at the top of
@@ -71,47 +106,48 @@ this is for anyone writing a `server/themes/<id>/theme.css`.
 
 ## How it runs
 
-Every language executes on the server through Judge0, which runs the
-submission in its isolated sandbox and executes every test case. The
-server requires `JUDGE0_CE_ENDPOINT` and, when needed,
-`JUDGE0_CE_AUTH_HEADERS`; see `.env.example`. The Judge0 runner enforces
-CPU, wall-time, and memory limits for each test.
+By default every language runs **on the platform's own machine, offline**:
+no internet, no Judge0. The server uses the interpreters/compilers installed on
+it (JavaScript needs Node, Python is always available, PHP/Ruby need `php`/`ruby`,
+C/C++ need `gcc`/`g++`, Java needs the JDK `javac`). The editor only offers
+languages the server can actually run, and says so if none of a challenge's
+languages is installed. Each run has CPU, wall-clock, memory and output limits,
+and on Linux with `bubblewrap` installed it also runs in a sandbox with no
+network and no access to the server's files.
+
+**Read `docs/CODE_RUNNER.md` before running a real competition** - it explains the
+isolation levels, how to install the runtimes, and the self-hosted Judge0 option
+(`CODE_RUNNER=judge0`).
+
+Anything the player's code prints (`print`, `console.log`, `echo`, `printf`...)
+shows up in the editor's **Console output** panel; it no longer corrupts the result.
 
 ## Runnable languages
 
-Set `languages` to restrict the runtime dropdown. For typed runtimes,
-declare the function signature; arrays map to C pointer/length pairs,
-`std::vector` in C++, and native arrays in Java:
+For typed runtimes (C, C++, Java), declare the function signature; arrays map
+to C pointer/length pairs, `std::vector` in C++, and native arrays in Java:
 
 ```json
 {
   "languages": ["javascript", "python", "php", "ruby", "c", "cpp", "java"],
   "parameter_names": ["nums"],
   "parameter_types": ["int[]"],
-  "return_type": "int",
-  "starter_code_by_language": {
-    "python": "def sumArray(nums):\n    pass\n",
-    "php": "function sumArray($nums) {\n    // implement the sum\n}\n",
-    "ruby": "def sumArray(nums)\n  # implement the sum\nend\n"
-  }
+  "return_type": "int"
 }
 ```
 
-`languages` may contain any subset of the supported runtimes. C supports
-primitive results and `int[]` inputs; C++ and Java also support `int[][]`
-results. `starter_code_by_language` lets each dynamic language start with
-custom code; typed-language function stubs are generated from the signature.
-Runs go to
-`POST /api/challenges/<id>/code-run` and are rejected unless the language
-is enabled for that task. A missing or unreachable Judge0 instance returns
-a clear error. Runs are networked and do not produce local console output.
+C supports primitive results and `int[]` parameters only; C++ and Java also
+support `int[]` / `int[][]` results and `int[][]` parameters. A challenge that
+returns objects or mixed values is JavaScript/Python/PHP/Ruby only. Runs go to
+`POST /api/challenges/<id>/code-run` and are rejected unless the language is
+enabled for that task.
 
 ## Where the flag actually lives
 
-The coding-task block is removed from the ordinary challenge listing.
-Task metadata is fetched separately without the flag, and the Judge0 run
-endpoint returns the flag only when every test passes. Keep starter code as
-a stub; do not put a working solution in `starter_code`.
+The task is removed from the ordinary challenge listing. Task metadata is
+fetched separately without the flag (and with hidden tests reduced to
+`{"hidden": true}`), and the run endpoint returns the flag only when every test
+passes. Keep starter code as a stub; do not put a working solution in it.
 
 ## Matching a challenge to its open modal
 

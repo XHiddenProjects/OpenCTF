@@ -1,17 +1,17 @@
 // Code Challenge Editor addon
 //
-// Adds an in-browser, sandboxed code editor to any standard challenge
-// whose description contains a [[coding-task]] block (see AUTHORING.md).
-// Needs no backend/database changes: it reads the same Description field
-// every challenge already has, over the same GET /api/challenges every
-// player already calls, and injects its panel into the existing standard
+// Adds a code editor to any challenge that has a coding task: either a
+// challenge of type "code" (built in Admin -> New challenge -> Code
+// challenge), or an older one whose description contains a [[coding-task]]
+// block (see AUTHORING.md). The panel is injected into the standard
 // challenge modal (#modal-challenge) via plain DOM access - the addon
 // system gives every addon full access to the host page (see
-// docs/ADDON_DEVELOPMENT.md), there's no special "challenge modal" hook
-// needed for this.
+// docs/ADDON_DEVELOPMENT.md).
 //
 // The editor is a small, dependency-free line-numbered textarea. All
-// submitted code runs server-side through the Judge0 endpoint.
+// submitted code runs server-side - by default offline, on the platform's
+// own machine (CODE_RUNNER=local); optionally via Judge0. See
+// docs/CODE_RUNNER.md.
 (function () {
   const ADDON_ID = "code-challenge";
   const SCRIPT_URL = document.currentScript ? document.currentScript.src : "";
@@ -62,7 +62,10 @@
     if (!task || typeof task !== "object") return null;
     try {
       if (typeof task.function_name !== "string" || !Array.isArray(task.tests) || !task.tests.length) return null;
-      task.starter_code = typeof task.starter_code === "string" ? task.starter_code : `function ${task.function_name}() {\n\n}\n`;
+      // No explicit starter code (challenges made in the admin builder usually
+      // don't set one): starterFor() generates it per language from the signature.
+      task.hasStarter = typeof task.starter_code === "string";
+      task.starter_code = task.hasStarter ? task.starter_code : "";
       task.language = typeof task.language === "string" && task.language.trim() ? task.language.trim() : "javascript";
       const hasTypedSignature = Array.isArray(task.parameter_types) && typeof task.return_type === "string";
       const availableLanguages = hasTypedSignature
@@ -80,6 +83,17 @@
         task.starter_code_by_language && typeof task.starter_code_by_language === "object"
           ? task.starter_code_by_language
           : {};
+      // The offline runner can only run what's installed on the server, so
+      // offer only those languages. If none of this task's languages is
+      // installed there, say so instead of failing on Run.
+      if (Array.isArray(task.available_languages)) {
+        const ready = task.languages.filter((language) => task.available_languages.includes(language));
+        task.noRuntime = ready.length === 0;
+        if (ready.length) {
+          task.languages = ready;
+          if (!ready.includes(task.language)) task.language = ready[0];
+        }
+      }
       return task;
     } catch {
       return null;
@@ -126,7 +140,7 @@
   // It's intentionally generic (comment/string/number/keyword rules driven
   // by a per-language data table, one dedicated pass each for HTML/CSS)
   // rather than a full parser, and never touches the network. The selected
-  // runnable language also determines which Judge0 harness executes the
+  // runnable language also determines which test harness executes the
   // code; see AUTHORING.md for the supported runtimes.
   const LANG_ALIASES = {
     js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
@@ -463,14 +477,26 @@
     }
   }
 
-  // Map Judge0 statuses into the editor's per-test result shape.
-  function mapJudge0Results(serverResults) {
+  // Map the server's per-test statuses into the editor's result shape.
+  function mapServerResults(serverResults) {
     return serverResults.map((r) => {
+      const hidden = Boolean(r.hidden);
       if (r.status !== "Accepted" && r.status !== "Wrong Answer") {
-        return { ok: false, error: [r.status, r.compile_output || r.stderr].filter(Boolean).join(": ") };
+        // Hidden tests only ever show the status, never program output.
+        const detail = hidden ? "" : r.compile_output || r.stderr;
+        return { ok: false, hidden, stdout: r.stdout, error: [r.status, detail].filter(Boolean).join(": ") };
       }
-      return { ok: true, actual: r.actual, passed: r.passed };
+      return { ok: true, hidden, actual: r.actual, passed: r.passed, stdout: r.stdout };
     });
+  }
+
+  // What the player's own print()/console.log()/echo wrote, per test.
+  function consoleText(results) {
+    const parts = [];
+    results.forEach((r, i) => {
+      if (r && r.stdout && !r.hidden) parts.push(`[#${i + 1}] ${r.stdout}`);
+    });
+    return parts.join("\n");
   }
 
   // --- Panel wiring -------------------------------------------------
@@ -500,6 +526,7 @@
             : `<span class="cc-lang-badge">${escapeHtml(languageDisplayName(task.language))}</span>`}
         </h4>
         ${task.instructions ? `<p class="field-note cc-instructions">${escapeHtml(task.instructions)}</p>` : ""}
+        ${task.noRuntime ? `<p class="form-error cc-no-runtime">${escapeHtml(t("addon.code-challenge.no_runtime", "None of this challenge's languages is installed on the server, so it can't run code right now. Ask an admin."))}</p>` : ""}
       </div>
       <div class="cc-editor-host"></div>
       <div class="cc-toolbar">
@@ -522,15 +549,18 @@
     // doesn't lose what you'd written in the other language, and doesn't
     // show it as if it were the current one either.
     const draftKey = (lang) => `${title}::${lang}`;
-    const starterFor = (lang) => {
-      if (task.starter_code_by_language[lang]) return task.starter_code_by_language[lang];
-      if (lang === task.language) return task.starter_code;
+    const genericStarter = (lang) => {
       if (["c", "cpp", "java"].includes(lang)) return nativeStarterCode(task, lang);
       const names = task.parameter_names || [];
       if (lang === "python") return `def ${task.function_name}(${names.join(", ") || "*args"}):\n    pass\n`;
-      if (lang === "php") return `function ${task.function_name}(...$args) {\n}\n`;
-      if (lang === "ruby") return `def ${task.function_name}(*args)\nend\n`;
-      return `function ${task.function_name}(...args) {\n}\n`;
+      if (lang === "php") return `function ${task.function_name}(${names.map((n) => `$${n}`).join(", ") || "...$args"}) {\n}\n`;
+      if (lang === "ruby") return `def ${task.function_name}(${names.join(", ") || "*args"})\nend\n`;
+      return `function ${task.function_name}(${names.join(", ") || "...args"}) {\n  \n}\n`;
+    };
+    const starterFor = (lang) => {
+      if (task.starter_code_by_language[lang]) return task.starter_code_by_language[lang];
+      if (lang === task.language && task.hasStarter) return task.starter_code;
+      return genericStarter(lang);
     };
     const draftFor = (lang) => (draftByTitle.has(draftKey(lang)) ? draftByTitle.get(draftKey(lang)) : starterFor(lang));
 
@@ -570,6 +600,14 @@
               : state === "error"
                 ? t("addon.code-challenge.test_error", "Error")
                 : "";
+          if (tc.hidden) {
+            return `
+            <div class="cc-test-row cc-test-${state}">
+              <span class="cc-test-badge">${state === "pending" ? "…" : escapeHtml(badgeText)}</span>
+              <code class="cc-test-call cc-test-hidden">${escapeHtml(t("addon.code-challenge.hidden_test", "Hidden test"))}</code>
+              ${r && r.error ? `<span class="cc-test-detail">${escapeHtml(r.error)}</span>` : ""}
+            </div>`;
+          }
           return `
             <div class="cc-test-row cc-test-${state}">
               <span class="cc-test-badge">${state === "pending" ? "…" : escapeHtml(badgeText)}</span>
@@ -580,22 +618,23 @@
         .join("");
     }
     renderTests([], task.tests);
+    if (task.noRuntime) runBtn.disabled = true;
 
     function doRun() {
       runBtn.disabled = true;
       statusEl.textContent = t("addon.code-challenge.running", "Running...");
       statusEl.className = "cc-status";
 
-      // Every language runs through Judge0 so the exact same test cases
-      // and sandbox limits apply to every submission.
-      consoleEl.textContent = t("addon.code-challenge.console_server_run", "(server-side execution - no local console output)");
+      // Every language runs server-side so the exact same test cases and
+      // limits apply to every submission.
+      consoleEl.textContent = t("addon.code-challenge.running", "Running...");
       window.OpenCTF.api(`/api/challenges/${challengeId}/code-run`, {
         method: "POST",
         body: JSON.stringify({ language: currentLanguage, code: editor.getValue() }),
       })
         .then((data) => {
           runBtn.disabled = false;
-          finishRun(mapJudge0Results(data.results), data.all_passed ? data.flag : null);
+          finishRun(mapServerResults(data.results), data.all_passed ? data.flag : null);
         })
         .catch((err) => {
           runBtn.disabled = false;
@@ -607,6 +646,8 @@
 
     function finishRun(results, completionFlag) {
       renderTests(results, task.tests);
+      consoleEl.textContent = consoleText(results)
+        || t("addon.code-challenge.console_none", "(your code didn't print anything)");
       const passed = task.tests.filter((tc, i) => results[i] && results[i].ok && (results[i].passed === true || (results[i].passed === undefined && deepEqual(results[i].actual, tc.expect)))).length;
       const total = task.tests.length;
       if (passed === total) {
