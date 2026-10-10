@@ -3,6 +3,9 @@
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 Versions apply to the platform as a whole (client + server move together).
 
+## 1.3.2
+- Fixed styling [@WebCrew](https://github.com/WebCrew)
+
 ## 1.3.1
 
 ### Added
